@@ -105,6 +105,7 @@ Bencoding *parseList(std::ifstream& stream) {
         if (stream.peek() == 'e') { break; }
         val.push_back(parse(stream));
     }
+    stream.get();
     return new Bencoding(val);
 }
 
@@ -124,6 +125,7 @@ Bencoding *parseDict(std::ifstream& stream) {
         kvPair.second = value;
         dict.push_back(kvPair);
     }
+    stream.get();
     return new Bencoding(dict);
 }
 

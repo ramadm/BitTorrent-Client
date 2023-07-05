@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     std::ifstream metainfo(p.c_str());
     Bencoding *benc; 
     while(metainfo.peek() != EOF) {
-        benc = decodeNextToken(metainfo);
+        benc = parse(metainfo);
         std::cout << benc->toString();
         delete benc;
     }
