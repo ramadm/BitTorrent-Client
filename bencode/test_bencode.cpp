@@ -14,15 +14,15 @@ void test_int() {
     std::cout << "Testing ints.\n";
     std::ifstream test_int(TEST_INT_PATH);
     // test 1
-    Bencoding *benc = decodeInt(test_int);
+    Bencoding *benc = parseInt(test_int);
     assert(benc->toString() == "1");
     delete benc;
     // test 2
-    benc = decodeInt(test_int);
+    benc = parseInt(test_int);
     assert(benc->toString() == "-42");
     delete benc;
     // test 3
-    benc = decodeInt(test_int);
+    benc = parseInt(test_int);
     assert(benc->toString() == "9223372036854775807");
     delete benc;
     test_int.close();
@@ -38,11 +38,11 @@ void test_str() {
     std::cout << "Testing strings.\n";
     std::ifstream test_str(TEST_STR_PATH);
     // test 1
-    Bencoding *benc = decodeString(test_str);
+    Bencoding *benc = parseStr(test_str);
     assert(benc->toString() == "\"test\"");
     delete benc;
     // test 2
-    benc = decodeString(test_str);
+    benc = parseStr(test_str);
     assert(benc->toString() == aesop);
     delete benc;
     test_str.close();
@@ -52,10 +52,10 @@ void test_str() {
 void test_decode() {
     std::cout << "Testing decode on string and int.\n";
     std::ifstream test_decode(TEST_DECODE_PATH);
-    Bencoding *benc = decodeNextToken(test_decode);
+    Bencoding *benc = parse(test_decode);
     assert(benc->toString() == "-128");
     delete benc;
-    benc = decodeNextToken(test_decode);
+    benc = parse(test_decode);
     assert(benc->toString() == "\"negative one hundred twenty-eight\"");
     delete benc;
     test_decode.close();
@@ -65,9 +65,9 @@ void test_decode() {
 void test_list() {
     std::cout << "Testing lists.\n";
     std::ifstream test_list(TEST_LIST_PATH);
-    Bencoding *benc = decodeList(test_list);
+    Bencoding *benc = parseList(test_list);
     assert(benc->toString() == "[ 100, \"word\", ]");
-    benc = decodeList(test_list);
+    benc = parseList(test_list);
     delete benc;
     test_list.close();
     std::cout << "All list tests passed\n";
@@ -76,8 +76,8 @@ void test_list() {
 void test_dict() {
     std::cout << "Testing dicts.\n";
     std::ifstream test_dict(TEST_DICT_PATH);
-    Bencoding *benc = decodeDict(test_dict);
-    assert(benc->toString() == "{ -1: [ \"negative\", \"one\", ], }");
+    Bencoding *benc = parseDict(test_dict);
+    assert(benc->toString() == "{ \"four\": 4, \"key\": \"value\", }");
     test_dict.close();
     std::cout << "All dict tests passed.\n";
 }

@@ -1,144 +1,150 @@
-#include <string>
-#include <fstream>
-#include <vector>
 #include "bencode.h"
+#include <iostream>
 
-// TODO: research unit tests
-BencInt::BencInt(long long val) {
-    this->val = val;
+// TODO: Must be designed for safe use with exceptions
+
+Bencoding::Bencoding(long long val) {
+    type = BencInt;
+    intData = val;
 }
 
-std::string BencInt::toString() {
-    return std::to_string(val);
+Bencoding::Bencoding(string val) {
+    type = BencStr;
+    strData = val;
 }
 
-BencStr::BencStr(std::string val) {
-    this->val = val;
+Bencoding::Bencoding(vector<Bencoding *> val) {
+    type = BencList;
+    listData = val;
 }
 
-std::string BencStr::toString() {
-    return "\"" + val + "\"";
+Bencoding::Bencoding(vector<pair<string, Bencoding *>> val) {
+    type = BencDict;
+    dictData = val;
 }
 
-BencList::BencList(std::vector<Bencoding *> val) {
-    this->val = val;
-}
-
-std::string BencList::toString() {
-    std::string str = "[ ";
-    for (int i = 0; i < val.size(); i++) {
-        Bencoding *benc = val[i];
-        str += benc->toString();
-        str += ", ";
+string Bencoding::toString() {
+    switch (type) {
+        case BencInt:
+            return (std::to_string(intData));
+        case BencStr:
+            return "\"" + strData + "\"";
+        case BencList:
+        {
+            string listAsStr = "[ ";
+            for (int i = 0; i < listData.size(); i++) {
+                listAsStr += listData[i]->toString();
+                listAsStr += ", ";
+            }
+            listAsStr += "]";
+            return listAsStr;
+        }
+        case BencDict:
+        {
+            string dictAsStr = "{ ";
+            for (int i = 0; i < dictData.size(); i++) {
+                dictAsStr += "\"" + dictData[i].first + "\"";
+                dictAsStr += ": ";
+                dictAsStr += dictData[i].second->toString();
+                dictAsStr += ", ";
+            }
+            dictAsStr += "}";
+            return dictAsStr;
+        }
     }
-    str += "]";
-    return str;
+    return "";
 }
 
-BencDict::BencDict(std::vector<std::pair<Bencoding *, Bencoding *>> val) {
-    this->val = val;
-}
-
-std::string BencDict::toString() {
-    std::string str = "{ ";
-    for (int i = 0; i < val.size(); i++) {
-        auto benc = val[i];
-        str += benc.first->toString();
-        str += ": ";
-        str += benc.second->toString();
-        str += ", ";
-    }
-    str += "}";
-    return str;
-}
-
-Bencoding *decodeNextToken(std::ifstream& stream) {
-    char c;
-    c = stream.peek();
-    switch (c) {
-        case EOF:
-            exit (-1);
-        // integer
-        case 'i':
-            return decodeInt(stream);
-        // list
-        case 'l':
-            return decodeList(stream);
-        // dictionary
-        case 'd':
-            return decodeDict(stream);
-        // byte string
-        default:
-            return decodeString(stream);
-    }
-}
-
-Bencoding *decodeInt(std::ifstream& stream) {
-    // we can assume the first character is an 'i' and skip it
+Bencoding *parseInt(std::ifstream& stream) {
+    // skip 'i'
+    long long val;
     stream.get();
     char c;
-    std::string asStr = "";
+    string asStr = "";
     while (stream.get(c)) {
-        if (c == 'e') {
-            break;
-        }
-        if (!isdigit(c) && c != '-') {
-            return NULL;
-        }
+        if (c == 'e') { break; }
         asStr += c;
     }
-    Bencoding *res = new BencInt(stoll(asStr));
-    return res;
-}
-
-Bencoding *decodeList(std::ifstream& stream) {
-    // we can assume first char is an 'l'
-    stream.get();
-    std::vector<Bencoding *> list;
-    while (stream.peek() != 'e') {
-        list.push_back(decodeNextToken(stream));
+    try {
+        val = std::stoll(asStr);
+    // TODO: If the try-catch was around the call to parse, we could continue with execution and
+    // tell the user the file was formatted incorrectly!
+    } catch (const std::invalid_argument& e) {
+        std::cerr << e.what();
+        abort();
     }
-    stream.get();
-    Bencoding *res = new BencList(list);
-    return res;
+    return new Bencoding(val);
 }
 
-Bencoding *decodeDict(std::ifstream& stream) {
-    // we can assume first char is a 'd'
-    stream.get();
-    std::vector<std::pair<Bencoding *, Bencoding *>> dict;
-    while (stream.peek() != 'e') {
-        // assumes dictionary is formatted correctly
-        std::pair<Bencoding *, Bencoding *> nextPair;
-        nextPair.first = decodeNextToken(stream);
-        nextPair.second = decodeNextToken(stream);
-        dict.push_back(nextPair);
-    }
-    stream.get();
-    Bencoding *res = new BencDict(dict);
-    return res;
-}
-
-Bencoding *decodeString(std::ifstream& stream) {
+Bencoding *parseStr(std::ifstream& stream) {
     char c;
-    std::string lenAsStr = "";
+    string lengthAsStr = "";
     while (stream.get(c)) {
-        if (c == ':') {
+        if (!isdigit(c)) {
             break;
         }
-        if (!isdigit(c)) {
-            return NULL;
-        }
-        lenAsStr += c;
+        lengthAsStr += c;
     }
-
-    std::string str = "";
-    for (int i = 0; i < stoi(lenAsStr); i++) {
-        if (stream.get(c)) {
-            str += c;
-        }
+    if (c != ':') {
+        throw std::invalid_argument("Invalid string format.");
     }
+    string val = "";
+    int length = stoi(lengthAsStr);
+    for (int i = 0; i < length; i++) {
+        if (!stream.get(c)) { break; }
+        val += c;
+    }
+    return new Bencoding(val);
+}
 
-    Bencoding *res = new BencStr(str);
-    return res;
+Bencoding *parseList(std::ifstream& stream) {
+    // skip 'l'
+    stream.get();
+    vector<Bencoding *> val;
+    while (stream.peek()) {
+        if (stream.peek() == 'e') { break; }
+        val.push_back(parse(stream));
+    }
+    return new Bencoding(val);
+}
+
+Bencoding *parseDict(std::ifstream& stream) {
+    // skip 'd'
+    stream.get();
+    vector<pair<string, Bencoding *>> dict;
+    while (stream.peek()) {
+        if (stream.peek() == 'e') { break; }
+        Bencoding *bencKey = parse(stream);
+        if (bencKey->type != BencStr) {
+            throw std::invalid_argument("Non-string data cannot be dictionary keys.");
+        }
+        Bencoding *value = parse(stream);
+        pair<string, Bencoding *> kvPair;
+        kvPair.first = bencKey->strData;
+        kvPair.second = value;
+        dict.push_back(kvPair);
+    }
+    return new Bencoding(dict);
+}
+
+/**
+ * Parse a Bencoded file and returns a Bencoding object. Throws invalid_argument exception if file
+ * is incorrectly formatted.
+*/
+Bencoding *parse(std::ifstream& stream) {
+    char c = stream.peek();
+    switch (c) {
+        case 'i':
+            return parseInt(stream);
+        case 'l':
+            return parseList(stream);
+        case 'd':
+            return parseDict(stream);
+        // string
+        default:
+            if (!isdigit(c)) {
+                throw std::invalid_argument("Not a valid start to Bencoded sequence.");
+            }
+            return parseStr(stream);
+    }
 }

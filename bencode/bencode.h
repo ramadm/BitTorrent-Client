@@ -1,46 +1,37 @@
+#include <vector>
 #include <string>
 #include <fstream>
-#include <vector>
+#include <variant>
+
+using std::string;
+using std::vector;
+using std::pair;
+
+enum BencType {
+    BencInt,
+    BencStr,
+    BencList,
+    BencDict
+};
 
 class Bencoding {
 public:
-    virtual std::string toString() = 0;
+    BencType type;
+    long long intData;
+    string strData;
+    // TODO: consider using std::unique_ptr for vectors
+    vector<Bencoding *> listData;
+    vector<pair<string, Bencoding *>> dictData;
+
+    Bencoding(long long);
+    Bencoding(string);
+    Bencoding(vector<Bencoding *>);
+    Bencoding(vector<pair<string, Bencoding *>>);
+    string toString();
 };
 
-class BencInt : public Bencoding {
-public:
-    long long val;
-    BencInt(long long);
-    std::string toString();
-};
-
-class BencStr : public Bencoding {
-public:
-    std::string val;
-    BencStr(std::string);
-    std::string toString();
-};
-
-class BencList : public Bencoding {
-public:
-    std::vector<Bencoding *> val;
-    BencList(std::vector<Bencoding *>);
-    std::string toString();
-};
-
-class BencDict : public Bencoding {
-public:
-    std::vector<std::pair<Bencoding *, Bencoding *>> val;
-    BencDict(std::vector<std::pair<Bencoding *, Bencoding *>>);
-    std::string toString();
-};
-
-Bencoding *decodeNextToken(std::ifstream& stream);
-
-Bencoding *decodeInt(std::ifstream& stream);
-
-Bencoding *decodeList(std::ifstream& stream);
-
-Bencoding *decodeDict(std::ifstream& stream);
-
-Bencoding *decodeString(std::ifstream& stream);
+Bencoding *parseInt(std::ifstream&);
+Bencoding *parseStr(std::ifstream&);
+Bencoding *parseList(std::ifstream&);
+Bencoding *parseDict(std::ifstream&);
+Bencoding *parse(std::ifstream&);
