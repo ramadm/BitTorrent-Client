@@ -28,6 +28,7 @@ public:
     Bencoding(vector<Bencoding *>);
     Bencoding(vector<pair<string, Bencoding *>>);
     string toString();
+    void verifyType(BencType);
 };
 
 Bencoding *parseInt(std::ifstream&);

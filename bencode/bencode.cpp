@@ -23,6 +23,11 @@ Bencoding::Bencoding(vector<pair<string, Bencoding *>> val) {
     dictData = val;
 }
 
+// TODO: It may be preferable to have getters
+void Bencoding::verifyType(BencType correctType) {
+    if (type != correctType) { throw std::invalid_argument("Incorrect data type."); }
+}
+
 string Bencoding::toString() {
     switch (type) {
         case BencInt:
