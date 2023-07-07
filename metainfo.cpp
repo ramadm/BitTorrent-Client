@@ -1,4 +1,5 @@
 #include "metainfo.h"
+#include <iostream>
 
 Info::Info(Bencoding *benc) {
     benc->verifyType(BencDict);
@@ -35,15 +36,18 @@ Metainfo::Metainfo(Bencoding *benc) {
         if (key == "announce") {
             value->verifyType(BencStr);
             announce = value->strData;
+        // announce-list is a list of list of strings containing URLs
         } else if (key == "announce-list") {
             value->verifyType(BencList);
-            vector<string> annList;
-            // Get the raw strings from the list of Bencoded strings
             for (int i = 0; i < value->listData.size(); i++) {
-                value->listData[i]->verifyType(BencStr);
-                annList.push_back(value->listData[i]->strData);
+                Bencoding *subList = value->listData[i];
+                subList->verifyType(BencList);
+                for (int j = 0; j < subList->listData.size(); j++) {
+                    Bencoding *annListEntry = subList->listData[j];
+                    annListEntry->verifyType(BencStr);
+                    announceList.push_back(annListEntry->strData);
+                }
             }
-            announceList = annList;
         } else if (key == "created by") {
             value->verifyType(BencStr);
             createdBy = value->strData;
