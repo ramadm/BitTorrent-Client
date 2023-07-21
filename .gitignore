@@ -33,3 +33,7 @@
 
 # VSCode files
 .vscode
+
+# Torrent files
+torrent/
+*.torrent

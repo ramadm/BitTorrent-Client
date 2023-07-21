@@ -31,10 +31,16 @@ public:
     void verifyType(BencType);
 };
 
-Bencoding *parseInt(std::ifstream&);
-Bencoding *parseStr(std::ifstream&);
-Bencoding *parseList(std::ifstream&);
-Bencoding *parseDict(std::ifstream&);
-Bencoding *parse(std::ifstream&);
+Bencoding *parseInt(std::istream&);
+Bencoding *parseStr(std::istream&);
+Bencoding *parseList(std::istream&);
+Bencoding *parseDict(std::istream&);
+Bencoding *parse(std::istream&);
+
+Bencoding *parseInt(string);
+Bencoding *parseStr(string);
+Bencoding *parseList(string);
+Bencoding *parseDict(string);
+Bencoding *parse(string);
 
 string bencode(Bencoding *);

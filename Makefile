@@ -1,9 +1,12 @@
-all:
-	+$(MAKE) -C external/cryptopp/
+all: packages
 	make client
 
+packages:
+	sudo apt-get install libcurl4-openssl-dev
+	+$(MAKE) -C external/cryptopp
+
 client:
-	g++ -Wall -Wextra -pedantic -o client -I. -Lexternal/cryptopp src/client.cpp src/bencode/bencode.cpp src/tracker.cpp -lcryptopp
+	g++ -Wall -Wextra -pedantic -o client -I. -Lexternal/cryptopp src/client.cpp src/bencode/bencode.cpp src/tracker.cpp -lcryptopp -lcurl
 
 clean:
 	rm -f client

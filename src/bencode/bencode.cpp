@@ -60,7 +60,7 @@ string Bencoding::toString() {
     return "";
 }
 
-Bencoding *parseInt(std::ifstream& stream) {
+Bencoding *parseInt(std::istream& stream) {
     // skip 'i'
     long long val;
     stream.get();
@@ -81,7 +81,7 @@ Bencoding *parseInt(std::ifstream& stream) {
     return new Bencoding(val);
 }
 
-Bencoding *parseStr(std::ifstream& stream) {
+Bencoding *parseStr(std::istream& stream) {
     char c;
     string lengthAsStr = "";
     while (stream.get(c)) {
@@ -102,7 +102,7 @@ Bencoding *parseStr(std::ifstream& stream) {
     return new Bencoding(val);
 }
 
-Bencoding *parseList(std::ifstream& stream) {
+Bencoding *parseList(std::istream& stream) {
     // skip 'l'
     stream.get();
     vector<Bencoding *> val;
@@ -114,7 +114,7 @@ Bencoding *parseList(std::ifstream& stream) {
     return new Bencoding(val);
 }
 
-Bencoding *parseDict(std::ifstream& stream) {
+Bencoding *parseDict(std::istream& stream) {
     // skip 'd'
     stream.get();
     vector<pair<string, Bencoding *>> dict;
@@ -138,7 +138,7 @@ Bencoding *parseDict(std::ifstream& stream) {
  * Parse a Bencoded file and returns a Bencoding object. Throws invalid_argument exception if file
  * is incorrectly formatted.
 */
-Bencoding *parse(std::ifstream& stream) {
+Bencoding *parse(std::istream& stream) {
     char c = stream.peek();
     switch (c) {
         case 'i':
@@ -186,7 +186,7 @@ string bencode(Bencoding *benc) {
             string val = "d";
             for (size_t i = 0; i < benc->dictData.size(); i++) {
                 string key = benc->dictData[i].first;
-                val += std::to_string(benc->strData.length());
+                val += std::to_string(key.length());
                 val += ':';
                 val += key;
                 val += bencode(benc->dictData[i].second);

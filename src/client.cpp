@@ -33,8 +33,6 @@ int main(int argc, char **argv) {
 
     // TODO: nest in try-catch
     Tracker *tracker = new Tracker(metainfo);
-    std::cout << tracker->announceURL << std::endl;
-    std::cout << tracker->infoHash << std::endl;
-
+    tracker->getPeerList();
     return 0;
 }

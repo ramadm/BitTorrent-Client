@@ -1,24 +1,26 @@
 #include "bencode/bencode.h"
 #include "external/cryptopp/sha.h"
 #include "external/cryptopp/hex.h"
+#include <curl/curl.h>
 
 class Tracker {
 public:
     // mandatory fields for tracker request
     string announceURL;
-    // this is a SHA1 hash of the info dict from the metainfo file
-    // currently it is a hex-encoded string representation
+    // contains the SHA1 hash of the info dict in raw binary
     string infoHash;
+    // represents info about the client trying to connect (us), this is generated on startup
     string peerID;
-    int port;
-    int bytesUploaded;
-    int bytesDownloaded;
-    int bytesLeft;
-    int compact;
-    int noPeerID;
-    string event;
+    // standard port range for BitTorrent is 6881-6889
+    int port = 6881;
+    long long bytesUploaded = 0;
+    long long bytesDownloaded = 0;
+    long long length;
+    string event = "started";
 
     // TODO: add response fields we want to store
 
     Tracker(Bencoding *);
+    void getPeerList();
+    static size_t writeCallback(void *, size_t, size_t, void *);
 };

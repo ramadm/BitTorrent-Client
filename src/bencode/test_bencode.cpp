@@ -94,7 +94,9 @@ void test_bencode() {
     benc = parse(test_dict);
     std::cout << bencode(benc) << std::endl;
     test_dict.close();
-    std::cout << "All bencode tests passed.\n";
+
+    Bencoding *testStr = new Bencoding("testing...");
+    std::cout << bencode(testStr) << std::endl;
 }
 
 int main() {
