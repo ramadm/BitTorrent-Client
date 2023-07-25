@@ -1,3 +1,6 @@
+#ifndef BENCODE
+#define BENCODE
+
 #include <vector>
 #include <string>
 #include <fstream>
@@ -44,3 +47,5 @@ Bencoding *parseDict(string);
 Bencoding *parse(string);
 
 string bencode(Bencoding *);
+
+#endif

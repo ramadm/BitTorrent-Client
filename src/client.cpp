@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include "tracker.h"
+#include "torrent.h"
 
 #define STR_USAGE "Usage: ./client <file.torrent>"
 
@@ -33,6 +34,8 @@ int main(int argc, char **argv) {
 
     // TODO: nest in try-catch
     Tracker *tracker = new Tracker(metainfo);
-    tracker->getPeerList();
+    string trackerResponse = tracker->requestTrackerInfo();
+    Torrent torrent(trackerResponse);
+    torrent.startDownloading();
     return 0;
 }

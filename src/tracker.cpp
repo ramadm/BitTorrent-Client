@@ -2,6 +2,7 @@
 #include <iostream>
 #include <random>
 #include <sstream>
+#include <unistd.h>
 
 Tracker::Tracker(Bencoding *metainfo) {
     // initialize a peer ID
@@ -34,14 +35,14 @@ Tracker::Tracker(Bencoding *metainfo) {
     }
 }
 
-size_t Tracker::writeCallback(void *contents, size_t size, size_t nmemb, void *userp)
+size_t Tracker::writeCallback(void *data, size_t size, size_t nmemb, void *userp)
 {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    ((std::string*)userp)->append((char*)data, size * nmemb);
     return size * nmemb;
 }
 
 // Attempts to get peer list by sending an HTTP GET request to the announceURL
-void Tracker::getPeerList() {
+string Tracker::requestTrackerInfo() {
 
     // format the URL for a GET request
     string requestURL = announceURL + '?';
@@ -76,13 +77,20 @@ void Tracker::getPeerList() {
 
         // send the request
         res = curl_easy_perform(curl);
-        if (res != CURLE_OK) { std::cout << "Error occurred in curl_easy_perform().\n"; }
+        if (res != CURLE_OK) { 
+            std::cout << "Request failed with CURLE code " << res << ".\n";
+            std::cout << "Retrying in 3 seconds...\n";
+            sleep(3);
+            // TODO: sometimes connection with the tracker fails and I'm not sure why
+            // Unclear if in this situation running curl_easy_perform() again will fix anything
+            curl_easy_perform(curl);
+            if (res != CURLE_OK) {
+                std::cout << "Failed again. Please try again in 60 seconds.\n";
+                abort();
+            }
+        }
         
         curl_easy_cleanup(curl);
-        std::istringstream ss(buffer);
-        std::cout << parse(ss)->toString() << std::endl;
     }
-
-    // TODO: Edit GET request to the proper tracker request
-    // TODO: Edit writeCallback() to fill tracker class data
+    return buffer;
 }
