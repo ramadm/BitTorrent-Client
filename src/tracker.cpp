@@ -78,16 +78,9 @@ string Tracker::requestTrackerInfo() {
         // send the request
         res = curl_easy_perform(curl);
         if (res != CURLE_OK) { 
-            std::cout << "Request failed with CURLE code " << res << ".\n";
-            std::cout << "Retrying in 3 seconds...\n";
-            sleep(3);
             // TODO: sometimes connection with the tracker fails and I'm not sure why
-            // Unclear if in this situation running curl_easy_perform() again will fix anything
-            curl_easy_perform(curl);
-            if (res != CURLE_OK) {
-                std::cout << "Failed again. Please try again in 60 seconds.\n";
-                abort();
-            }
+            // Running client again usually fixes it
+            abort();
         }
         
         curl_easy_cleanup(curl);
