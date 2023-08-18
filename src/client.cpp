@@ -35,7 +35,9 @@ int main(int argc, char **argv) {
     // TODO: nest in try-catch
     Tracker *tracker = new Tracker(metainfo);
     string trackerResponse = tracker->requestTrackerInfo();
-    Torrent torrent(trackerResponse);
+    string infoHash = tracker->infoHash;
+    string peerID = tracker->peerID;
+    Torrent torrent(trackerResponse, infoHash, peerID);
     torrent.startDownloading();
     return 0;
 }

@@ -6,12 +6,11 @@ public:
     int interval;   // wait time between sending requests
     int minAnnounceInterval;    // min wait time between client announcing
     vector<string> peerList;
+    string infoHash;
+    string peerID;
+    string handshake;
 
-    // info needed to maintain a download
-
-
-    Torrent(string trackerResponse);
+    Torrent(string, string, string);
     void startDownloading();
     void cancelDownload();
-    void connectToPeer(string);
 };
