@@ -37,16 +37,18 @@ Torrent::Torrent(string trackerResponse, string iHash, string pID) {
     }
     
     // Generate the handshake
+    handshake = "";
     string protocol = "BitTorrent protocol";
     unsigned char pStrLen = protocol.length();
+    handshake += (char)pStrLen;
+    handshake += protocol;
     unsigned char zero = 0;
-    string padding = "";
     for (size_t i = 0; i < 8; i++) {
-        padding += (char)zero;
+        handshake += (char)zero;
     }
-    handshake = "" + (char)pStrLen + protocol + padding + infoHash + peerID;
+    handshake += infoHash + peerID;
     // delete once you are sure the handshake is well-formed.
-    std::cout << "Handshake: " << handshake << std::endl;
+    std::cout << "Handshake length " << handshake.length() << std::endl;
 }
 
 // This function makes asynchronous calls to connectToPeer(), attempting to open a connection with
@@ -67,7 +69,13 @@ void Torrent::startDownloading() {
         abort();
     }
 
+    // TODO: don't use raw pointers?
     asio::io_context io;
-    PeerWireClient client(io, peerList[0], handshake);
+    vector<PeerWireClient *> clients;
+    for (size_t i = 0; i < peerList.size(); i++) {
+        clients.push_back(new PeerWireClient(io, peerList[i], handshake, i, infoHash));
+    }
     io.run();
+
+    // TODO: call destructors?
 }

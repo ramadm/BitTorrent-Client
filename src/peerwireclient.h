@@ -3,11 +3,16 @@
 
 class PeerWireClient {
 public:
-    PeerWireClient(asio::io_context& ioc, std::string addrStr, std::string hs);
+    PeerWireClient(asio::io_context& ioc, std::string addrStr, std::string hs, size_t peerNum, 
+        std::string ih);
 
 private:
     // TODO: copying this from boost's example, but I believe ioContext is a reference variable
     // because a single io_context object is maintained between all connections
+    size_t peerNumber;
+    std::string peerPrefix;
+    std::string peerID;
+    std::string infoHash;
     std::string handshake;
     asio::ip::address_v4 addr;
     asio::ip::port_type port;
