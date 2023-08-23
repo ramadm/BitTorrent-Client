@@ -7,7 +7,7 @@ PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, std::
     peerNumber(peerNum), infoHash(ih), handshake(hs), ioContext(ioc), socket(ioc) {
     // Convert the address and port from raw binary string to usable types
     std::string ipStr = addrStr.substr(0, 4);
-    std::array<unsigned char, 4> rawIP;
+    std::array<uint8_t, 4> rawIP;
     std::copy(std::begin(ipStr), std::end(ipStr), std::begin(rawIP));
     addr = asio::ip::make_address_v4(rawIP);
     std::string portStr = addrStr.substr(4, 2);
@@ -54,25 +54,74 @@ void PeerWireClient::handleWrite(const asio::error_code &error, size_t /*bytesWr
 void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead) {
     if (error) {
         std::cerr << peerPrefix << "Read err: " << error.message() << std::endl;
-    } else {
-        std::cout << peerPrefix << "Received response (" << bytesRead << " bytes)\n";
-        if (!peerValidated) {
-            checkHandshake(bytesRead);
-            if (!socket.is_open()) {
-                return;
-            }
-            std::cout << "After trimming handshake, received message:\n";
-            std::cout.write(messageBuffer.data(), bytesRead);
-            std::cout << " (" << bytesRead << " bytes)\n";
-        }
-        // TODO: process the message
+        return;
     }
+
+    std::cout << peerPrefix << "Received response (" << bytesRead << " bytes)\n";
+    if (!peerValidated) {
+        checkHandshake(bytesRead);
+        if (!socket.is_open()) {
+            return;
+        }
+        std::cout << "After trimming handshake, received message:\n";
+        std::cout.write(messageBuffer.data(), bytesRead);
+        std::cout << " (" << bytesRead << " bytes)\n";
+    }
+    // Process the message
+    uint32_t lengthPrefix = messageBuffer[0] << 24 | 
+                            messageBuffer[1] << 16 |
+                            messageBuffer[2] << 8 |
+                            messageBuffer[3];
+    std::cout << "Message length: " << lengthPrefix << std::endl;
+    if (lengthPrefix == 0) {
+        std::cout << "keep alive\n";
+        return;
+        // TODO: process
+    }
+    uint8_t messageID = messageBuffer[4];
+    switch (messageID) {
+        case (MessageID::Choke):
+            std::cout << "Choke\n";
+            abort();
+        case (MessageID::Unchoke):
+            std::cout << "Unchoke\n";
+            abort();
+        case (MessageID::Interested):
+            std::cout << "Interested\n";
+            abort();
+        case (MessageID::NotInterested):
+            std::cout << "Not Interested\n";
+            abort();
+        case (MessageID::Have):
+            std::cout << "Have\n";
+            abort();
+        case (MessageID::Bitfield):
+            std::cout << "Bitfield\n";
+            // TODO:
+            abort();
+
+
+
+        case (MessageID::Request):
+            std::cout << "Request\n";
+            abort();
+        case (MessageID::Piece):
+            std::cout << "Piece\n";
+            abort();
+        case (MessageID::Cancel):
+            std::cout << "Cancel\n";
+            abort();
+        case (MessageID::Port):
+            std::cout << "Port";
+            abort();
+    }
+    
 }
 
 // Check that the handshake is valid and adjust messageBuffer and bytesRead to subtract the
 // handshake
 void PeerWireClient::checkHandshake(size_t &bytesRead) {
-    unsigned char pStrLen = messageBuffer[0];
+    uint8_t pStrLen = messageBuffer[0];
     std::string pStr = "";
     for (size_t i = 0; i < pStrLen; i++) {
         pStr += messageBuffer[i+1];

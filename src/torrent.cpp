@@ -1,11 +1,49 @@
 #include "torrent.h"
 #include <sstream>
 #include <iostream>
+#include <random>
 #include "peerwireclient.h"
+#include "external/cryptopp/sha.h"
+#include "external/cryptopp/hex.h"
 
-Torrent::Torrent(string trackerResponse, string iHash, string pID) {
-    infoHash = iHash;
-    peerID = pID;
+Torrent::Torrent(Bencoding *minfo)
+{
+    metainfo = minfo;
+    
+    // initialize a peer ID
+    std::random_device dev;
+    std::mt19937 rng(dev());
+    // random 12 character long sequence of numbers
+    std::uniform_int_distribution<std::mt19937::result_type> dist12char(100000000000, 999999999999);
+    peerID = "-rd0001-" + std::to_string(dist12char(rng));
+
+    // Populate fields with data from metainfo file
+    metainfo->verifyType(BencDict);
+    for (size_t i = 0; i < metainfo->dictData.size(); i++) {
+        string key = metainfo->dictData[i].first;
+        Bencoding *value = metainfo->dictData[i].second;
+        if (key == "announce") {
+            value->verifyType(BencStr);
+            announceURL = value->strData;
+        } else if (key == "info") {
+            // Get the info_hash param, which is a sha1 hash of the info dict from metainfo file
+            string infoStr = bencode(value);
+            size_t infoLen = infoStr.length();
+            CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
+            CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte *)infoStr.c_str(), infoLen);
+            infoHash = std::string((char *)digest, 20);
+            std::cout << infoHash.length() << std::endl;
+        } else if (key == "length") {
+            // TODO: this should be within info-dict
+            value->verifyType(BencInt);
+            length = value->intData;
+        }
+        // Add whatever other info is needed...
+    }
+
+    tracker = Tracker(announceURL, infoHash, peerID, length);
+    string trackerResponse = tracker.requestTrackerInfo();
+
     // parse tracker response
     std::istringstream ss(trackerResponse);
     Bencoding *benc = parse(ss);
@@ -39,15 +77,16 @@ Torrent::Torrent(string trackerResponse, string iHash, string pID) {
     // Generate the handshake
     handshake = "";
     string protocol = "BitTorrent protocol";
-    unsigned char pStrLen = protocol.length();
+    uint8_t pStrLen = protocol.length();
     handshake += (char)pStrLen;
     handshake += protocol;
-    unsigned char zero = 0;
+    uint8_t zero = 0;
     for (size_t i = 0; i < 8; i++) {
         handshake += (char)zero;
     }
     handshake += infoHash + peerID;
     // delete once you are sure the handshake is well-formed.
+    std::cout << handshake << std::endl;
     std::cout << "Handshake length " << handshake.length() << std::endl;
 }
 
@@ -59,11 +98,7 @@ void Torrent::startDownloading() {
     std::cout << "Leechers: " << numLeechers << std::endl;
     std::cout << "interval: " << interval << std::endl;
     std::cout << "Number of peers: " << peerList.size() << std::endl;
-    /*for (size_t i = 0; i < peerList.size(); i++) {
-        // TODO: connect to peer i
-        string addr = peerList[i];
-        std::cout << addr << std::endl;
-    }*/
+
     if (peerList.size() == 0) {
         std::cout << "Error: no peers.\n";
         abort();

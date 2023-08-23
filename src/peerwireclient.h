@@ -2,7 +2,7 @@
 #include "external/asio-1.28.0/include/asio.hpp"
 #define MSG_BUF_SIZE 1024
 
-enum MessageID : unsigned char {
+enum MessageID : uint8_t {
     Choke = 0,
     Unchoke = 1,
     Interested = 2,

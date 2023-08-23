@@ -20,7 +20,8 @@ public:
 
     // TODO: add response fields we want to store
 
-    Tracker(Bencoding *);
+    Tracker();
+    Tracker(string announceURL, string infoHash, string peerID, long long length);
     string requestTrackerInfo();
     static size_t writeCallback(void *, size_t, size_t, void *);
 };

@@ -4,35 +4,18 @@
 #include <sstream>
 #include <unistd.h>
 
-Tracker::Tracker(Bencoding *metainfo) {
-    // initialize a peer ID
-    std::random_device dev;
-    std::mt19937 rng(dev());
-    // random 12 character long sequence of numbers
-    std::uniform_int_distribution<std::mt19937::result_type> dist12char(100000000000, 999999999999);
-    peerID = "-rd0001-" + std::to_string(dist12char(rng));
+Tracker::Tracker() {
+    announceURL = "";
+    infoHash = "";
+    peerID = "";
+    length = 0;
+}
 
-    // Populate fields with data from metainfo file
-    metainfo->verifyType(BencDict);
-    for (size_t i = 0; i < metainfo->dictData.size(); i++) {
-        string key = metainfo->dictData[i].first;
-        Bencoding *value = metainfo->dictData[i].second;
-        if (key == "announce") {
-            value->verifyType(BencStr);
-            announceURL = value->strData;
-        } else if (key == "info") {
-            // Get the info_hash param, which is a sha1 hash of the info dict from metainfo file
-            string infoStr = bencode(value);
-            size_t infoLen = infoStr.length();
-            CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-            CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte *)infoStr.c_str(), infoLen);  
-            infoHash += (char *)digest;
-        } else if (key == "length") {
-            value->verifyType(BencInt);
-            length = value->intData;
-        }
-        // Add whatever other info is needed...
-    }
+Tracker::Tracker(string announceURL, string infoHash, string peerID, long long length) {
+    this->announceURL = announceURL;
+    this->peerID = peerID;
+    this->infoHash = infoHash;
+    this->length = length;
 }
 
 size_t Tracker::writeCallback(void *data, size_t size, size_t nmemb, void *userp)
@@ -68,8 +51,6 @@ string Tracker::requestTrackerInfo() {
     CURLcode res;
 
     if (curl) {
-
-
         // set options
         curl_easy_setopt(curl, CURLOPT_URL, requestURL.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
