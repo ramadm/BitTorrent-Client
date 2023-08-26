@@ -6,8 +6,10 @@ public:
     Bencoding *metainfo;
     Tracker tracker;
 
+    string fileName;
     string announceURL;
     long long length;
+    long long pieceLength;
     int numSeeders;
     int numLeechers;
     int interval;   // wait time between sending requests
@@ -16,6 +18,8 @@ public:
     string infoHash;
     string peerID;
     string handshake;
+    // TODO: Consider changing the way this is stored for performance reasons
+    string pieces;
 
     Torrent(Bencoding *minfo);
     void startDownloading();

@@ -32,11 +32,25 @@ Torrent::Torrent(Bencoding *minfo)
             CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
             CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte *)infoStr.c_str(), infoLen);
             infoHash = std::string((char *)digest, 20);
-            std::cout << infoHash.length() << std::endl;
-        } else if (key == "length") {
-            // TODO: this should be within info-dict
-            value->verifyType(BencInt);
-            length = value->intData;
+            // iterate over the info dict to get fields
+            value->verifyType(BencDict);
+            for (size_t i = 0; i < value->dictData.size(); i++) {
+                string infoKey = value->dictData[i].first;
+                Bencoding *infoVal = value->dictData[i].second;
+                if (infoKey == "length") {
+                    infoVal->verifyType(BencInt);
+                    length = infoVal->intData;
+                } else if (infoKey == "piece length") {
+                    infoVal->verifyType(BencInt);
+                    pieceLength = infoVal->intData;
+                } else if (infoKey == "name") {
+                    infoVal->verifyType(BencStr);
+                    fileName = infoVal->strData;
+                } else if (infoKey == "pieces") {
+                    infoVal->verifyType(BencStr);
+                    pieces = infoVal->strData;
+                }
+            }
         }
         // Add whatever other info is needed...
     }

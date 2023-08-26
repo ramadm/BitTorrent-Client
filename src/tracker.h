@@ -1,6 +1,4 @@
 #include "bencode/bencode.h"
-#include "external/cryptopp/sha.h"
-#include "external/cryptopp/hex.h"
 #include <curl/curl.h>
 
 class Tracker {
