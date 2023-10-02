@@ -1,5 +1,6 @@
 #include "bencode/bencode.h"
 #include "tracker.h"
+#include <deque>
 
 class Torrent {
 public:
@@ -10,6 +11,7 @@ public:
     string announceURL;
     long long length;
     long long pieceLength;
+    size_t numPieces;
     int numSeeders;
     int numLeechers;
     int interval;   // wait time between sending requests
@@ -18,8 +20,12 @@ public:
     string infoHash;
     string peerID;
     string handshake;
-    // TODO: Consider changing the way this is stored for performance reasons
+
+    // hashes of the pieces
     string pieces;
+    // randomly ordered queue of /indices/ of pieces
+    std::deque<uint32_t> pieceQueue;
+
 
     Torrent(Bencoding *minfo);
     void startDownloading();

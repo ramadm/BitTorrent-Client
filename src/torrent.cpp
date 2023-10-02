@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iostream>
 #include <random>
+#include <cmath>
 #include "peerwireclient.h"
 #include "external/cryptopp/sha.h"
 #include "external/cryptopp/hex.h"
@@ -55,6 +56,13 @@ Torrent::Torrent(Bencoding *minfo)
         // Add whatever other info is needed...
     }
 
+    numPieces = length/pieceLength + (length % pieceLength != 0);
+    for (size_t i; i < numPieces; i++) {
+        pieceQueue.push_back(i);
+    }
+    // No real reason we can't re-use the rng from generating our ID here
+    std::shuffle(pieceQueue.begin(), pieceQueue.end(), rng);
+
     tracker = Tracker(announceURL, infoHash, peerID, length);
     string trackerResponse = tracker.requestTrackerInfo();
 
@@ -99,9 +107,6 @@ Torrent::Torrent(Bencoding *minfo)
         handshake += (char)zero;
     }
     handshake += infoHash + peerID;
-    // delete once you are sure the handshake is well-formed.
-    std::cout << handshake << std::endl;
-    std::cout << "Handshake length " << handshake.length() << std::endl;
 }
 
 // This function makes asynchronous calls to connectToPeer(), attempting to open a connection with
@@ -122,7 +127,7 @@ void Torrent::startDownloading() {
     asio::io_context io;
     vector<PeerWireClient *> clients;
     for (size_t i = 0; i < peerList.size(); i++) {
-        clients.push_back(new PeerWireClient(io, peerList[i], handshake, i, infoHash));
+        clients.push_back(new PeerWireClient(io, peerList[i], handshake, i, infoHash, numPieces, pieceQueue));
     }
     io.run();
 
