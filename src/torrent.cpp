@@ -3,7 +3,6 @@
 #include <iostream>
 #include <random>
 #include <cmath>
-#include "peerwireclient.h"
 #include "external/cryptopp/sha.h"
 #include "external/cryptopp/hex.h"
 
@@ -57,11 +56,7 @@ Torrent::Torrent(Bencoding *minfo)
     }
 
     numPieces = length/pieceLength + (length % pieceLength != 0);
-    for (size_t i; i < numPieces; i++) {
-        pieceQueue.push_back(i);
-    }
-    // No real reason we can't re-use the rng from generating our ID here
-    std::shuffle(pieceQueue.begin(), pieceQueue.end(), rng);
+    PieceQueue pieceQueue(numPieces, pieceLength);
 
     tracker = Tracker(announceURL, infoHash, peerID, length);
     string trackerResponse = tracker.requestTrackerInfo();
@@ -127,7 +122,7 @@ void Torrent::startDownloading() {
     asio::io_context io;
     vector<PeerWireClient *> clients;
     for (size_t i = 0; i < peerList.size(); i++) {
-        clients.push_back(new PeerWireClient(io, peerList[i], handshake, i, infoHash, numPieces, pieceQueue));
+        clients.push_back(new PeerWireClient(io, peerList[i], i, handshake, pieceQueue));
     }
     io.run();
 

@@ -1,4 +1,5 @@
 #include "bencode/bencode.h"
+#include "peerwire/peerwireclient.h"
 #include "tracker.h"
 #include <deque>
 
@@ -23,9 +24,7 @@ public:
 
     // hashes of the pieces
     string pieces;
-    // randomly ordered queue of /indices/ of pieces
-    std::deque<uint32_t> pieceQueue;
-
+    PieceQueue pieceQueue;
 
     Torrent(Bencoding *minfo);
     void startDownloading();
