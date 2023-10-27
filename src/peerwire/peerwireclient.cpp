@@ -14,7 +14,7 @@ PieceQueue::PieceQueue(size_t num, size_t size) : numPieces(num), pieceSize(size
 
 PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_t peerNum, 
     std::string hs, PieceQueue& pq) : 
-    pieceQueue(pq), peerNumber(peerNum), handshake(hs), ioContext(ioc), socket(ioc) {
+    pieceQueue(pq), peerNumber(peerNum), handshake(hs), ioContext(ioc), socket(ioc), acceptor(ioc) {
 
     // Convert the address and port from raw binary string to usable types
     std::string ipStr = addrStr.substr(0, 4);
@@ -22,19 +22,57 @@ PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_
     std::copy(std::begin(ipStr), std::end(ipStr), std::begin(rawIP));
     addr = asio::ip::make_address_v4(rawIP);
     std::string portStr = addrStr.substr(4, 2);
-    port = (asio::ip::port_type)portStr[0] << 8 | 
-        (asio::ip::port_type)portStr[1];
+    uint8_t portByte1 = (uint8_t)portStr[0];
+    uint8_t portByte2 = (uint8_t)portStr[1];
+    port = ((asio::ip::port_type)portByte1 << 8) |
+        (asio::ip::port_type)portByte2;
     peerPrefix = "[Peer " + std::to_string(peerNumber) + "] ";
     peerValidated = false;
     bitfLength = pq.numPieces/8 + (pq.numPieces % 8 != 0);
+    //std::cout << "Attempting to connect to peer at " << addr.to_string() << ":" << port << std::endl;
     startConnection();
 }
 
-// host mode
-PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq) : 
-    pieceQueue(pq), handshake(hs), ioContext(ioc), socket(ioc) {
-    // TODO
+// TODOs to finish project
+/*
+1. Something wrong with prefix length. Output from test server:
+    [127.0.0.1] Writing handshake.
+    [127.0.0.1] Wrote 68 bytes.
 
+    [127.0.0.1] Received response of 68 bytes
+    [127.0.0.1] Handshake validated
+    [127.0.0.1] Wrote 4 bytes.
+
+    [127.0.0.1] Received response of 4 bytes
+    [127.0.0.1] Failed to read message from buffer: ill-formatted message or incomplete read. Length prefix = 16777216.
+    [127.0.0.1] Wrote 4 bytes.
+Test if things are working with the normal client once this is fixed.
+*/
+// 2. implement piece requesting
+// 3. construct file from pieces
+
+PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, 
+    asio::ip::port_type port) :
+    pieceQueue(pq), handshake(hs), ioContext(ioc), socket(ioc), 
+    acceptor(ioc, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)) {
+
+    auto callback = std::bind(&PeerWireClient::handleAccept, this, std::placeholders::_1);
+    acceptor.async_accept(socket, callback);
+}
+
+void PeerWireClient::handleAccept(const asio::error_code &error) {
+    if (error) {
+        std::cerr << "Accept error: " << error.message() << std::endl;
+    } else {
+        std::cout << "Peer connected at " << socket.remote_endpoint().address().to_string();
+        std::cout << std::endl;
+        peerPrefix = "[" + socket.remote_endpoint().address().to_string() + "] ";
+        
+        std::cout << peerPrefix << "Writing handshake.\n";
+        auto callback = std::bind(&PeerWireClient::handleWrite, this, std::placeholders::_1,
+            std::placeholders::_2);
+        asio::async_write(socket, asio::buffer(handshake, HANDSHAKE_LENGTH), callback);
+    }
 }
 
 // TODO: how should we handle refused connections?
@@ -58,6 +96,9 @@ void PeerWireClient::handleConnect(const asio::error_code &error) {
         // socket.async_write_some(asio::buffer(handshake), callback);
         std::cout << peerPrefix << "Writing handshake.\n";
         asio::async_write(socket, asio::buffer(handshake, HANDSHAKE_LENGTH), callback);
+    } else {
+        std::cerr << "Connection error: " << error.message() << std::endl;
+
     }
 }
 
@@ -215,6 +256,7 @@ size_t PeerWireClient::writeMessageListToBuffer(std::vector<PeerWireMessage> mes
             return writeIndex;
         }
 
+        // TODO: investigate for a bug here, something is wrong with length prefix
         writeBuffer[writeIndex] = (char)(uint8_t)lengthPrefix;
         writeBuffer[writeIndex + 1] = (char)(uint8_t)(lengthPrefix >> 8);
         writeBuffer[writeIndex + 2] = (char)(uint8_t)(lengthPrefix >> 16);
@@ -255,6 +297,8 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRea
         ((uint32_t)(uint8_t)(messageBuffer[readIndex + 1]) << 16) |
         ((uint32_t)(uint8_t)(messageBuffer[readIndex + 2]) << 8) |
         (uint32_t)(uint8_t)(messageBuffer[readIndex + 3]);
+
+        std::cout << "Length prefix: " << std::endl;
 
         // keep alive
         if (lengthPrefix == 0) {

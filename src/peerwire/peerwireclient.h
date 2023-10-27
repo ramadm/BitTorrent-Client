@@ -53,9 +53,9 @@ class PeerWireClient {
 public:
     PeerWireClient(asio::io_context& ioc, std::string addrStr, size_t peerNum, std::string hs,
         PieceQueue& pq);
-    PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq);
+    PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, asio::ip::port_type port);
 
-}
+
 
 private:
     // network info
@@ -63,6 +63,7 @@ private:
     asio::ip::port_type port;
     asio::io_context& ioContext;
     asio::ip::tcp::socket socket;
+    asio::ip::tcp::acceptor acceptor;
     std::array<char, MSG_BUF_SIZE> messageBuffer;
     std::array<char, MSG_BUF_SIZE> writeBuffer;
 
@@ -86,6 +87,7 @@ private:
     uint32_t currentBlock;
 
     void startConnection();
+    void handleAccept(const asio::error_code &error);
     void handleConnect(const asio::error_code &error);
     void handleWrite(const asio::error_code &error, size_t bytesWritten);
     void handleRead(const asio::error_code &error, size_t bytesRead);
