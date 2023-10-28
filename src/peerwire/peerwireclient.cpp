@@ -34,20 +34,7 @@ PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_
 }
 
 // TODOs to finish project
-/*
-1. Something wrong with prefix length. Output from test server:
-    [127.0.0.1] Writing handshake.
-    [127.0.0.1] Wrote 68 bytes.
-
-    [127.0.0.1] Received response of 68 bytes
-    [127.0.0.1] Handshake validated
-    [127.0.0.1] Wrote 4 bytes.
-
-    [127.0.0.1] Received response of 4 bytes
-    [127.0.0.1] Failed to read message from buffer: ill-formatted message or incomplete read. Length prefix = 16777216.
-    [127.0.0.1] Wrote 4 bytes.
-Test if things are working with the normal client once this is fixed.
-*/
+// 1. test/debug client
 // 2. implement piece requesting
 // 3. construct file from pieces
 
@@ -256,14 +243,13 @@ size_t PeerWireClient::writeMessageListToBuffer(std::vector<PeerWireMessage> mes
             return writeIndex;
         }
 
-        // TODO: investigate for a bug here, something is wrong with length prefix
-        writeBuffer[writeIndex] = (char)(uint8_t)lengthPrefix;
-        writeBuffer[writeIndex + 1] = (char)(uint8_t)(lengthPrefix >> 8);
-        writeBuffer[writeIndex + 2] = (char)(uint8_t)(lengthPrefix >> 16);
-        writeBuffer[writeIndex + 3] = (char)(uint8_t)(lengthPrefix >> 24);
+        writeBuffer[writeIndex] = (char)(uint8_t)(lengthPrefix >> 24);
+        writeBuffer[writeIndex + 1] = (char)(uint8_t)(lengthPrefix >> 16);
+        writeBuffer[writeIndex + 2] = (char)(uint8_t)(lengthPrefix >> 8);
+        writeBuffer[writeIndex + 3] = (char)(uint8_t)(lengthPrefix);
 
         // keep alive
-        if (lengthPrefix = 0) {
+        if (lengthPrefix == 0) {
             writeIndex += 4;
             break;
         }
@@ -283,11 +269,28 @@ size_t PeerWireClient::writeMessageListToBuffer(std::vector<PeerWireMessage> mes
 /**
  * Read from the incoming message buffer and generate a list of PeerWireMessages
 */
+// TODO: test incomplete message handling
 std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRead) {
     size_t readIndex = 0;
     std::vector<PeerWireMessage> messageList;
 
+    if (leftoverBytes != 0) {
+        if (leftoverBytes + bytesRead > MSG_BUF_SIZE) {
+            // TODO: fix this
+            std::cerr << "leftoverBytes + bytesRead = " << (leftoverBytes + bytesRead) << std::endl;
+            abort();
+        }
+        std::array<char, MSG_BUF_SIZE> temp;
+        std::copy_n(leftoverBuffer.begin(), leftoverBytes, temp.begin());
+        std::copy_n(messageBuffer.begin(), bytesRead, temp.begin() + leftoverBytes);
+        
+        bytesRead += leftoverBytes;
+        leftoverBytes = 0;
+        std::copy_n(temp.begin(), bytesRead, messageBuffer.begin());
+    }
+
     while(readIndex < bytesRead) {
+
         if (readIndex + 4 > bytesRead) {
             std::cerr << peerPrefix << "Failed to read message from buffer: incomplete message.\n";
             break;
@@ -298,8 +301,6 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRea
         ((uint32_t)(uint8_t)(messageBuffer[readIndex + 2]) << 8) |
         (uint32_t)(uint8_t)(messageBuffer[readIndex + 3]);
 
-        std::cout << "Length prefix: " << std::endl;
-
         // keep alive
         if (lengthPrefix == 0) {
             messageList.push_back(PeerWireMessage());
@@ -307,9 +308,11 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRea
             continue;
         }
 
-        if (readIndex + lengthPrefix + 4 > bytesRead) {
-            std::cerr << peerPrefix << "Failed to read message from buffer: ill-formatted message ";
-            std::cerr << "or incomplete read. Length prefix = " << lengthPrefix << ".\n";
+        if (readIndex + lengthPrefix + 4 > bytesRead) {      
+            std::cout << "Incomplete message. Copying to leftover buffer.\n";
+            // TODO: test this
+            leftoverBytes = bytesRead - readIndex;
+            std::copy_n(messageBuffer.begin() + readIndex,  leftoverBytes, leftoverBuffer.begin());
             break;
         }
 

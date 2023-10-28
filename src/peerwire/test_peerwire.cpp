@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
     // TODO: establish a localhost connection between 2 peerwire clients
     // TODO: test sending some messages back and forth
     asio::io_context io;
-    asio::ip::port_type port = 6881;
+    asio::ip::port_type port = 6882;
     std::string infoHash = "01234567890123456789";
     std::string pID = "-rd0001-012345678900";
     std::string handshake = generateHandshake(infoHash, pID);

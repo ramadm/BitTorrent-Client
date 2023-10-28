@@ -66,6 +66,9 @@ private:
     asio::ip::tcp::acceptor acceptor;
     std::array<char, MSG_BUF_SIZE> messageBuffer;
     std::array<char, MSG_BUF_SIZE> writeBuffer;
+    // if an incomplete message comes in it gets put here until the next read
+    size_t leftoverBytes = 0;
+    std::array<char, MSG_BUF_SIZE> leftoverBuffer;
 
     // peer info
     size_t peerNumber;
