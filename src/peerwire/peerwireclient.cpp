@@ -1,9 +1,11 @@
 #include "peerwireclient.h"
 #include "external/asio-1.28.0/include/asio.hpp"
+#include "external/cryptopp/sha.h"
 #include <functional>
 #include <random>
 
-PieceQueue::PieceQueue(size_t num, size_t size) : numPieces(num), pieceSize(size) {
+PieceQueue::PieceQueue(size_t num, size_t size, std::string pieceStr) : 
+    numPieces(num), pieceSize(size), pieces(pieceStr) {
     for (size_t i = 0; i < numPieces; i++) {
         undownloaded.push_back(i);
     }
@@ -29,15 +31,21 @@ PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_
     peerPrefix = "[Peer " + std::to_string(peerNumber) + "] ";
     peerValidated = false;
     bitfLength = pq.numPieces/8 + (pq.numPieces % 8 != 0);
-    //std::cout << "Attempting to connect to peer at " << addr.to_string() << ":" << port << std::endl;
+    // TODO: add this to host mode
+    pieceInMemory.resize(pieceQueue.pieceSize);
+    // TODO: for testing only, REMOVE!!
+    currentPiece = 5;
+    currentBlock = 0;
     startConnection();
 }
 
 // TODOs to finish project
-// 1. test/debug client
-// 2. implement piece requesting
+// 1. implement piece requesting
+// 2. fix the flow of messages, e.g. when should I be requesting pieces, etc.
 // 3. construct file from pieces
+// 4. handle peer reconnecting/timeouts/etc.
 
+// host mode
 PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, 
     asio::ip::port_type port) :
     pieceQueue(pq), handshake(hs), ioContext(ioc), socket(ioc), 
@@ -109,8 +117,6 @@ void PeerWireClient::handleWrite(const asio::error_code &error, size_t bytesWrit
 /**
  * Handles async_read_some call. Parses the message(s), writes the response to writeBuffer, and 
  * initates another async_write call if there is work to do.
- * TODO: if a message comes in with a longer length prefix than the actual message length, try
- * doing another async_read_some call and concatenating the 2 buffers
 */
 void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead) {
     if (error) {
@@ -147,17 +153,20 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
 
     std::vector<PeerWireMessage> outboundMessageList;
     // TODO: decide what messages to send
+    // TODO: once piece requesting is working, fix this so that it sends the proper number of requests,
+    // etc.
     if (peerChoking) { 
         outboundMessageList.push_back(PeerWireMessage(1, MessageID::Interested, 
             std::vector<uint8_t>()));
     } else {
-        // TODO: queue requests?
+        PeerWireMessage msgRequest = generateNextRequest();
+        msgRequest.printReadable();
+        std::cout << std::endl;
+        outboundMessageList.push_back(msgRequest);
     }
 
     size_t bytesWritten = writeMessageListToBuffer(outboundMessageList);
 
-    // TODO: test new async_write. Old way:
-    //socket.async_write_some(asio::buffer(writeBuffer), callback);
     if (bytesWritten == 0) {
         auto callback = std::bind(&PeerWireClient::handleRead, this, std::placeholders::_1, 
             std::placeholders::_2);
@@ -180,8 +189,6 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
         return;
     }
 
-    msg.printReadable();
-
     switch (msg.id) {
         case (MessageID::Choke):
             std::cout << "Choked\n";
@@ -200,19 +207,25 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
             peerInterested = false;
             break;
         case (MessageID::Have):
+        {
             std::cout << "Have\n";
-            // TODO
+            uint32_t pieceIndex = ((uint32_t)(msg.payload[0]) << 24) |
+                ((uint32_t)(msg.payload[1]) << 16) |
+                ((uint32_t)(msg.payload[2]) << 8) |
+                (uint32_t)(msg.payload[3]);
+            bitfield.setPiece(pieceIndex);
             break;
+        }
         case (MessageID::Bitfield):
             bitfield = BitfieldStorage(msg.payload);
             break;   
         case (MessageID::Request):
             std::cout << "Request\n";
-            // TODO
+            // ignore requests for now
             break;
         case (MessageID::Piece):
-            // TODO
             std::cout << "Piece\n";
+            processPieceMessage(msg);
             abort();
         case (MessageID::Cancel):
             // TODO
@@ -229,7 +242,6 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
  * written
 */
 size_t PeerWireClient::writeMessageListToBuffer(std::vector<PeerWireMessage> messageList) {
-    // TODO: test this
     // TODO: it might be possible to simplify all of this with htonl and memcpy, e.g.
     // memcpy(writeBuffer, htonl(lengthPrefix)) or something if that's possible
     
@@ -269,7 +281,6 @@ size_t PeerWireClient::writeMessageListToBuffer(std::vector<PeerWireMessage> mes
 /**
  * Read from the incoming message buffer and generate a list of PeerWireMessages
 */
-// TODO: test incomplete message handling
 std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRead) {
     size_t readIndex = 0;
     std::vector<PeerWireMessage> messageList;
@@ -310,7 +321,6 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRea
 
         if (readIndex + lengthPrefix + 4 > bytesRead) {      
             std::cout << "Incomplete message. Copying to leftover buffer.\n";
-            // TODO: test this
             leftoverBytes = bytesRead - readIndex;
             std::copy_n(messageBuffer.begin() + readIndex,  leftoverBytes, leftoverBuffer.begin());
             break;
@@ -331,8 +341,12 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList(size_t bytesRea
     return messageList;
 }
 
-// TODO: implement this
+// TODO: just have to decide which piece to request
 PeerWireMessage PeerWireClient::generateNextRequest() {
+    // TODO: get the actual pieceIndex
+    uint32_t pieceIndex = 5;
+    uint32_t pieceBegin = 0;
+    
     // something like this
     /*
     uint32_t pieceIndex = pieceQueue.front();
@@ -343,11 +357,78 @@ PeerWireMessage PeerWireClient::generateNextRequest() {
     }
     */
 
+    // request: <len=0013><id=6><index><begin><length>
     std::vector<uint8_t> payload;
+    
+    // index
+    payload.push_back((uint8_t)(pieceIndex >> 24));
+    payload.push_back((uint8_t)(pieceIndex >> 16));
+    payload.push_back((uint8_t)(pieceIndex >> 8));
+    payload.push_back((uint8_t)pieceIndex);
+
+    // begin
+    payload.push_back((uint8_t)(pieceBegin >> 24));
+    payload.push_back((uint8_t)(pieceBegin >> 16));
+    payload.push_back((uint8_t)(pieceBegin >> 8));
+    payload.push_back((uint8_t)pieceBegin);
+
+    // length
+    payload.push_back((uint8_t)(BLOCK_SIZE >> 24));
+    payload.push_back((uint8_t)(BLOCK_SIZE >> 16));
+    payload.push_back((uint8_t)(BLOCK_SIZE >> 8));
+    payload.push_back((uint8_t)BLOCK_SIZE);
+
     PeerWireMessage requestMsg = PeerWireMessage(13, MessageID::Request, payload);
 
     // TODO: what to do if there's no valid request?
     return requestMsg;
+}
+
+// Processes a Piece message, writing the block to pieceInMemory, and writing pieceInMemory to file
+// if this is the last block in the piece.
+void PeerWireClient::processPieceMessage(PeerWireMessage msg) {
+    // piece: <len=0009+X><id=7><index><begin><block>
+    // get piece and block indices
+    uint32_t pieceIndex = (uint32_t)(msg.payload[0]) << 24 |
+        (uint32_t)(msg.payload[1]) << 16 |
+        (uint32_t)(msg.payload[2]) << 8 |
+        (uint32_t)(msg.payload[3]);
+    uint32_t pieceBegin = (uint32_t)(msg.payload[4]) << 24 |
+        (uint32_t)(msg.payload[5]) << 16 |
+        (uint32_t)(msg.payload[6]) << 8 |
+        (uint32_t)(msg.payload[7]);
+    if (pieceIndex != currentPiece || pieceBegin != currentBlock) {
+        std::cerr << "Incorrect piece index or block index received.\n";
+        return;
+    }
+ 
+    std::copy(msg.payload.begin() + 8, msg.payload.end(), pieceInMemory.begin() + currentBlock);
+    currentBlock += BLOCK_SIZE;
+
+    std::cout << "Piece copied to pieceInMemory.\n";
+
+    if (currentBlock > pieceQueue.pieceSize) {
+        // verify SHA1 hash (TODO: test)
+        CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
+        CryptoPP::SHA1().CalculateDigest(digest, pieceInMemory.data(), pieceInMemory.size());
+        std::array<uint8_t, 20> metainfoHash;
+        // TODO: test this, implicit type conversion could cause problems
+        std::copy_n(pieceQueue.pieces.begin() + (pieceIndex * 20), 20, metainfoHash.begin());
+        if (std::equal(metainfoHash.begin(), metainfoHash.end(), 
+            std::begin(digest), std::end(digest))) {
+            std::cout << "Piece " << pieceIndex << ": Hash verified.\n";
+            abort();
+            // TODO: write the piece to memory
+        } else {
+            std::cerr << "Piece " << pieceIndex << ": Incorrect hash.\n";
+            abort();
+            // TODO: add the piece back to the queue, etc.
+        }
+        
+
+        // TODO: get new currentPiece
+        currentBlock = 0;
+    }
 }
 
 // Check that the handshake is valid and close the connection if it's not.

@@ -1,7 +1,7 @@
 #include <iostream>
 #include "external/asio-1.28.0/include/asio.hpp"
 #include <deque>
-#define MSG_BUF_SIZE 1024
+#define MSG_BUF_SIZE 32768
 #define BLOCK_SIZE 16384
 #define HANDSHAKE_LENGTH 68
 
@@ -10,9 +10,10 @@ public:
     size_t numPieces;
     size_t pieceSize;
     std::deque<uint32_t> undownloaded;
+    std::string pieces;
 
     PieceQueue() = default;
-    PieceQueue(size_t num, size_t size);
+    PieceQueue(size_t num, size_t size, std::string pieceStr);
 };
 
 enum MessageID : uint8_t {
@@ -88,6 +89,9 @@ private:
     PieceQueue& pieceQueue;
     uint32_t currentPiece;
     uint32_t currentBlock;
+    // the current piece which will be written to file once finished
+    std::vector<uint8_t> pieceInMemory;
+
 
     void startConnection();
     void handleAccept(const asio::error_code &error);
@@ -98,6 +102,7 @@ private:
     void dropConnection();
     std::vector<PeerWireMessage> generateMessageList(size_t bytesRead);
     PeerWireMessage generateNextRequest();
+    void processPieceMessage(PeerWireMessage msg);
     size_t writeMessageListToBuffer(std::vector<PeerWireMessage> messageList);
     void processMessage(PeerWireMessage msg);
 };

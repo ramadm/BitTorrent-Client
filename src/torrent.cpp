@@ -56,7 +56,7 @@ Torrent::Torrent(Bencoding *minfo)
     }
 
     numPieces = length/pieceLength + (length % pieceLength != 0);
-    PieceQueue pieceQueue(numPieces, pieceLength);
+    pieceQueue = PieceQueue(numPieces, pieceLength, pieces);
 
     tracker = Tracker(announceURL, infoHash, peerID, length);
     string trackerResponse = tracker.requestTrackerInfo();
