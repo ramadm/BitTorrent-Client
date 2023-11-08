@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include "external/asio-1.28.0/include/asio.hpp"
 #include <deque>
 #define MSG_BUF_SIZE 32768
@@ -53,8 +54,9 @@ public:
 class PeerWireClient {
 public:
     PeerWireClient(asio::io_context& ioc, std::string addrStr, size_t peerNum, std::string hs,
-        PieceQueue& pq);
-    PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, asio::ip::port_type port);
+        PieceQueue& pq, std::ofstream& outFile);
+    PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, asio::ip::port_type port,
+        std::ofstream& outFile);
 
 
 
@@ -65,11 +67,10 @@ private:
     asio::io_context& ioContext;
     asio::ip::tcp::socket socket;
     asio::ip::tcp::acceptor acceptor;
-    std::array<char, MSG_BUF_SIZE> messageBuffer;
+    std::array<char, MSG_BUF_SIZE> tempBuffer;
+    std::array<char, MSG_BUF_SIZE> readBuffer;
+    size_t readBufBytes = 0;
     std::array<char, MSG_BUF_SIZE> writeBuffer;
-    // if an incomplete message comes in it gets put here until the next read
-    size_t leftoverBytes = 0;
-    std::array<char, MSG_BUF_SIZE> leftoverBuffer;
 
     // peer info
     size_t peerNumber;
@@ -82,6 +83,7 @@ private:
     bool peerInterested = false;
 
     // file info
+    std::ofstream& outputFile;
     std::string infoHash;
     std::string handshake;
     size_t bitfLength;
@@ -100,7 +102,7 @@ private:
     void handleRead(const asio::error_code &error, size_t bytesRead);
     void checkHandshake();
     void dropConnection();
-    std::vector<PeerWireMessage> generateMessageList(size_t bytesRead);
+    std::vector<PeerWireMessage> generateMessageList();
     PeerWireMessage generateNextRequest();
     void processPieceMessage(PeerWireMessage msg);
     size_t writeMessageListToBuffer(std::vector<PeerWireMessage> messageList);

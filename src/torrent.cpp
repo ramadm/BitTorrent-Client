@@ -1,6 +1,7 @@
 #include "torrent.h"
 #include <sstream>
 #include <iostream>
+#include <fstream>
 #include <random>
 #include <cmath>
 #include "external/cryptopp/sha.h"
@@ -117,12 +118,19 @@ void Torrent::startDownloading() {
         std::cout << "Error: no peers.\n";
         abort();
     }
+    
+    std::cout << std::endl;
+
+    // TODO:
+    // 1. Create file (need filename/extension info)
+    // 2. Pass file pointer to the clients
+    std::ofstream outputFile(fileName, std::ios::binary);
 
     // TODO: don't use raw pointers?
     asio::io_context io;
     vector<PeerWireClient *> clients;
     for (size_t i = 0; i < peerList.size(); i++) {
-        clients.push_back(new PeerWireClient(io, peerList[i], i, handshake, pieceQueue));
+        clients.push_back(new PeerWireClient(io, peerList[i], i, handshake, pieceQueue, outputFile));
     }
     io.run();
 
