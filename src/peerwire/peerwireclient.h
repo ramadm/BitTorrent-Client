@@ -2,7 +2,7 @@
 #include <fstream>
 #include "external/asio-1.28.0/include/asio.hpp"
 #include <deque>
-#define MSG_BUF_SIZE 32768
+#define MSG_BUF_SIZE 65536
 #define BLOCK_SIZE 16384
 #define HANDSHAKE_LENGTH 68
 

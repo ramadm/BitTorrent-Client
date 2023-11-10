@@ -27,6 +27,7 @@
 *.lib
 
 # Executables
+bin/
 *.exe
 *.out
 *.app
@@ -36,4 +37,5 @@
 
 # Torrent files
 torrent/
+torrents/
 *.torrent

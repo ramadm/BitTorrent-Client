@@ -15,9 +15,10 @@ PieceQueue::PieceQueue(size_t num, size_t size, std::string pieceStr) :
 }
 
 PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_t peerNum, 
-    std::string hs, PieceQueue& pq, std::ofstream& outFile) : 
-    pieceQueue(pq), peerNumber(peerNum), handshake(hs), ioContext(ioc), socket(ioc), acceptor(ioc),
-    outputFile(outFile) {
+    std::string hs, PieceQueue& pq, std::ofstream& outFile) :
+    ioContext(ioc), socket(ioc), acceptor(ioc), peerNumber(peerNum), outputFile(outFile),
+    handshake(hs), pieceQueue(pq)
+{
 
     // Convert the address and port from raw binary string to usable types
     std::string ipStr = addrStr.substr(0, 4);
@@ -34,24 +35,17 @@ PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_
     bitfLength = pq.numPieces/8 + (pq.numPieces % 8 != 0);
     // TODO: add this to host mode
     pieceInMemory.resize(pieceQueue.pieceSize);
-    // TODO: for testing only, REMOVE!!
-    currentPiece = 5;
+    currentPiece = pieceQueue.undownloaded.front();
+    pieceQueue.undownloaded.pop_front();
     currentBlock = 0;
     startConnection();
 }
 
-// TODOs to finish project
-// 1. implement piece requesting
-// 2. fix the flow of messages, e.g. when should I be requesting pieces, etc.
-// 3. construct file from pieces
-// 4. handle peer reconnecting/timeouts/etc.
-
 // host mode
 PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, 
     asio::ip::port_type port, std::ofstream& outFile) :
-    pieceQueue(pq), handshake(hs), ioContext(ioc), socket(ioc), 
-    acceptor(ioc, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)),
-    outputFile(outFile) {
+    ioContext(ioc), socket(ioc), acceptor(ioc, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)),
+    outputFile(outFile), handshake(hs), pieceQueue(pq) {
 
     auto callback = std::bind(&PeerWireClient::handleAccept, this, std::placeholders::_1);
     acceptor.async_accept(socket, callback);
@@ -90,15 +84,14 @@ void PeerWireClient::handleConnect(const asio::error_code &error) {
             std::placeholders::_2);
         asio::async_write(socket, asio::buffer(handshake, HANDSHAKE_LENGTH), callback);
     } else {
-        std::cerr << "Connection error: " << error.message() << std::endl;
-
+        //std::cerr << "Connection error: " << error.message() << std::endl;
     }
 }
 
 /**
  * Handles async_write call by initiating another read.
 */
-void PeerWireClient::handleWrite(const asio::error_code &error, size_t bytesWritten) {
+void PeerWireClient::handleWrite(const asio::error_code &error, size_t /*bytesWritten*/) {
     if (error) {
         std::cerr << peerPrefix << "Write err: " << error.message() << std::endl;
         return;
@@ -119,13 +112,19 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
         return;
     }
 
+    if (bytesRead + readBufBytes > MSG_BUF_SIZE) {
+        std::cout << "Read buf overflow.\n";
+        abort();
+    }
+
     std::copy_n(tempBuffer.begin(), bytesRead, readBuffer.begin() + readBufBytes);
+
     readBufBytes += bytesRead;
 
     // TODO: feels a little weird that we do this check every time we get new messages
     // I think it would make more sense to have a separate handleFirstRead method
     if (!peerValidated) { checkHandshake(); }
-    
+
     std::vector<PeerWireMessage> inboundMessageList = generateMessageList();
     for (PeerWireMessage msg : inboundMessageList) {
         processMessage(msg);
@@ -175,11 +174,9 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
             peerChoking = false;
             break;
         case (MessageID::Interested):
-            std::cout << "Interested\n";
             peerInterested = true;
             break;
         case (MessageID::NotInterested):
-            std::cout << "Not Interested\n";
             peerInterested = false;
             break;
         case (MessageID::Have):
@@ -195,7 +192,6 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
             bitfield = BitfieldStorage(msg.payload);
             break;   
         case (MessageID::Request):
-            std::cout << "Request\n";
             // ignore requests for now
             break;
         case (MessageID::Piece):
@@ -290,6 +286,9 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList() {
         MessageID id = (MessageID)(readBuffer[readIndex + 4]);
 
         std::vector<uint8_t> payload;
+        if (lengthPrefix == 0) {
+            std::cerr << "lp 0" << std::endl;
+        }
         for (size_t i = 0; i < (lengthPrefix - 1); i++) {
             payload.push_back((uint8_t)(readBuffer[readIndex + 5 + i]));
         }
@@ -298,7 +297,7 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList() {
         readIndex += lengthPrefix + 4;
     }
     readBufBytes -= readIndex;
-
+    
     return messageList;
 }
 
@@ -355,38 +354,51 @@ void PeerWireClient::processPieceMessage(PeerWireMessage msg) {
     currentBlock += BLOCK_SIZE;
 
     if (currentBlock >= pieceQueue.pieceSize) {
-        // verify SHA1 hash (TODO: test)
+        // verify SHA1 hash
         CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
         CryptoPP::SHA1().CalculateDigest(digest, pieceInMemory.data(), pieceInMemory.size());
         std::array<uint8_t, 20> metainfoHash;
-        // TODO: test this, implicit type conversion could cause problems
         std::copy_n(pieceQueue.pieces.begin() + (pieceIndex * 20), 20, metainfoHash.begin());
         if (std::equal(metainfoHash.begin(), metainfoHash.end(), 
             std::begin(digest), std::end(digest))) {
-            std::cout << "Piece " << pieceIndex << " hash verified.\n";
-            // TODO: write the piece to file
+            // Write the piece to file
+            // TODO: test this
             size_t fileOffset = pieceIndex * pieceQueue.pieceSize;
             outputFile.seekp(fileOffset);
             const char *pieceData = (const char *)pieceInMemory.data();
             outputFile.write(pieceData, pieceInMemory.size());
-            std::cout << "Piece " << pieceIndex << " written to file at " << fileOffset << " bytes.\n";
-            abort();
+            size_t numPiecesDownloaded = pieceQueue.numPieces - pieceQueue.undownloaded.size();
+            if (numPiecesDownloaded % 100 == 0) {
+                std::cout << numPiecesDownloaded << " pieces downloaded. "; 
+                std::cout << pieceQueue.undownloaded.size() << " remaining.\n";
+            }
 
         } else {
             std::cerr << "Piece " << pieceIndex << ": Incorrect hash.\n";
-            abort();
-            // TODO: add the piece back to the queue, etc.
+            pieceQueue.undownloaded.push_back(currentPiece);
+        }
+
+        if (pieceQueue.undownloaded.size() == 0) {
+            return;
         }
         
-        // TODO: get new currentPiece
+        currentPiece = pieceQueue.undownloaded.front();
+        pieceQueue.undownloaded.pop_front();
+        // get a new piece index at random
+        // attempt to guarantee that the peer has the piece
+        for (size_t i = 0; i < 25; i++) {
+            if (!bitfield.hasPiece(currentPiece)) {
+                pieceQueue.undownloaded.push_back(currentPiece);
+                currentPiece = pieceQueue.pieces.front();
+                pieceQueue.undownloaded.pop_front();
+            }
+        }
         currentBlock = 0;
     }
 }
 
-// Check that the handshake is valid and close the connection if it's not.
-// TODO: the current design of this method is sort of weird. I think that its not modular because
-// it doesn't take care of the entire job of handling the handshake, but it also does more than just
-// checking if its valid and returning a bool.
+// Check that the handshake is valid and close the connection if it's not. Remove the handshake
+// from the readBuffer
 void PeerWireClient::checkHandshake() {
     std::string infoHash = handshake.substr(28, 20);
 
