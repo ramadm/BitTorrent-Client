@@ -4,20 +4,74 @@
 #include <functional>
 #include <random>
 
-PieceQueue::PieceQueue(size_t num, size_t size, std::string pieceStr) : 
-    numPieces(num), pieceSize(size), pieces(pieceStr) {
-    for (size_t i = 0; i < numPieces; i++) {
-        undownloaded.push_back(i);
+PieceData::PieceData(uint32_t pIndex, uint32_t pSize) : pieceIndex(pIndex), pieceSize(pSize) {
+    data.resize(pieceSize);
+    size_t numBlocks = pieceSize / BLOCK_SIZE + (pieceSize % BLOCK_SIZE != 0);
+    for (size_t i = 0; i < numBlocks; i++) {
+        need.push_back(i);
+        blockInfo.push_back(false);
     }
+}
+
+bool PieceData::finished()
+{
+    for (size_t i = 0; i < blockInfo.size(); i++) {
+        if (!blockInfo[i]) { return false; }
+    }
+    return true;
+}
+
+std::vector<uint32_t> PieceData::getRequests() {
+    std::vector<uint32_t> requests;
+    //if (need.empty() && requeues < 1) { requeueBlocks(); requeues++; }
+
+    for (size_t i = 0; i < QUEUE_LENGTH; i++) {
+        if (need.empty()) { break; }
+        requests.push_back(need.front() * BLOCK_SIZE);
+        need.pop_front();
+    }
+
+    return requests;
+}
+
+void PieceData::requeueBlocks() {
+    for (size_t i = 0; i < blockInfo.size(); i++) {
+        if (!blockInfo[i]) {
+            need.push_back(i);
+        }
+    }
+}
+
+bool PieceData::verifyHash(std::array<uint8_t, 20> hash) {
+    CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
+    CryptoPP::SHA1().CalculateDigest(digest, data.data(), data.size());
+    return std::equal(hash.begin(), hash.end(), std::begin(digest), std::end(digest));
+}
+
+FileData::FileData(size_t num, size_t size, std::string hashes, std::string fileName) : 
+    numPieces(num), pieceSize(size), output(fileName, std::ios::binary)
+{
+
+    for (size_t i = 0; i < numPieces; i++) {
+        // convert pieces str to a format that can be checked against individual piece hashes later
+        std::string hashStr = hashes.substr(i * 20, 20);
+        std::array<uint8_t, 20> hashArr;
+        std::copy_n(hashes.begin() + (i * 20), 20, hashArr.begin());
+        pieceHashes.push_back(hashArr);
+
+        undownloaded.push_back(i);         // randomize piece download order
+        pieceInfo.push_back(false);
+    }
+
     std::random_device dev;
     std::mt19937 rng(dev());
     std::shuffle(undownloaded.begin(), undownloaded.end(), rng);
 }
 
 PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_t peerNum, 
-    std::string hs, PieceQueue& pq, std::ofstream& outFile) :
-    ioContext(ioc), socket(ioc), acceptor(ioc), peerNumber(peerNum), outputFile(outFile),
-    handshake(hs), pieceQueue(pq)
+    std::string hs, FileData& fData) :
+    ioContext(ioc), socket(ioc), acceptor(ioc), timer(ioc), peerNumber(peerNum), handshake(hs), 
+    fileData(fData)
 {
 
     // Convert the address and port from raw binary string to usable types
@@ -32,20 +86,18 @@ PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string addrStr, size_
         (asio::ip::port_type)portByte2;
     peerPrefix = "[Peer " + std::to_string(peerNumber) + "] ";
     peerValidated = false;
-    bitfLength = pq.numPieces/8 + (pq.numPieces % 8 != 0);
-    // TODO: add this to host mode
-    pieceInMemory.resize(pieceQueue.pieceSize);
-    currentPiece = pieceQueue.undownloaded.front();
-    pieceQueue.undownloaded.pop_front();
-    currentBlock = 0;
+    bitfLength = fileData.numPieces/8 + (fileData.numPieces % 8 != 0);
+
+    pieceData = PieceData(fileData.undownloaded.front(), fileData.pieceSize);
+    fileData.undownloaded.pop_front();
     startConnection();
 }
 
 // host mode
-PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string hs, PieceQueue& pq, 
-    asio::ip::port_type port, std::ofstream& outFile) :
+PeerWireClient::PeerWireClient(asio::io_context &ioc, std::string hs, FileData& fData, 
+asio::ip::port_type port) :
     ioContext(ioc), socket(ioc), acceptor(ioc, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)),
-    outputFile(outFile), handshake(hs), pieceQueue(pq) {
+    timer(ioc), handshake(hs), fileData(fData){
 
     auto callback = std::bind(&PeerWireClient::handleAccept, this, std::placeholders::_1);
     acceptor.async_accept(socket, callback);
@@ -113,7 +165,10 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
     }
 
     if (bytesRead + readBufBytes > MSG_BUF_SIZE) {
-        std::cout << "Read buf overflow.\n";
+        std::cout << peerPrefix << "Read buf overflow.\n";
+        std::cout << "Bytes read " << bytesRead << std::endl;
+        std::cout << "piece " << pieceData.pieceIndex << std::endl;
+        
         abort();
     }
 
@@ -131,9 +186,6 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
     }
 
     std::vector<PeerWireMessage> outboundMessageList;
-    // TODO: decide what messages to send
-    // TODO: once piece requesting is working, fix this so that it sends the proper number of requests,
-    // etc.
 
     if (peerChoking) { 
         outboundMessageList.push_back(PeerWireMessage(1, MessageID::Interested, 
@@ -141,8 +193,11 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
     } else if (inboundMessageList.size() == 0) {
         outboundMessageList.push_back(PeerWireMessage());
     } else {
-        PeerWireMessage msgRequest = generateNextRequest();
-        outboundMessageList.push_back(msgRequest);
+        std::vector<uint32_t> requests = pieceData.getRequests();
+        for (size_t blockInd : requests) {
+            outboundMessageList.push_back(generateRequest(pieceData.pieceIndex, blockInd));
+            //std::cout << peerPrefix << "Req piece " << pieceData.pieceIndex << " block: " << blockInd << std::endl;
+        }
     }
 
     size_t bytesWritten = writeMessageListToBuffer(outboundMessageList);
@@ -150,7 +205,7 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
     if (bytesWritten == 0) {
         auto callback = std::bind(&PeerWireClient::handleRead, this, std::placeholders::_1, 
             std::placeholders::_2);
-        asio::async_read(socket, asio::buffer(tempBuffer), callback);
+        socket.async_read_some(asio::buffer(tempBuffer), callback);
     } else {
         auto callback = std::bind(&PeerWireClient::handleWrite, this, std::placeholders::_1,
             std::placeholders::_2);
@@ -200,10 +255,11 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
         case (MessageID::Cancel):
             // TODO
             std::cout << "Cancel\n";
-            abort();
+            msg.printReadable();
+            break;
         default:
             std::cout << "Unknown message type\n";
-            abort();
+            msg.printReadable();
     }
 }
 
@@ -303,21 +359,21 @@ std::vector<PeerWireMessage> PeerWireClient::generateMessageList() {
 
 
 // TODO: just have to decide which piece to request
-PeerWireMessage PeerWireClient::generateNextRequest() {   
+PeerWireMessage PeerWireClient::generateRequest(size_t pieceIndex, size_t blockIndex) {
     // request: <len=0013><id=6><index><begin><length>
     std::vector<uint8_t> payload;
     
     // index
-    payload.push_back((uint8_t)(currentPiece >> 24));
-    payload.push_back((uint8_t)(currentPiece >> 16));
-    payload.push_back((uint8_t)(currentPiece >> 8));
-    payload.push_back((uint8_t)currentPiece);
+    payload.push_back((uint8_t)(pieceIndex >> 24));
+    payload.push_back((uint8_t)(pieceIndex >> 16));
+    payload.push_back((uint8_t)(pieceIndex >> 8));
+    payload.push_back((uint8_t)pieceIndex);
 
     // begin
-    payload.push_back((uint8_t)(currentBlock >> 24));
-    payload.push_back((uint8_t)(currentBlock >> 16));
-    payload.push_back((uint8_t)(currentBlock >> 8));
-    payload.push_back((uint8_t)currentBlock);
+    payload.push_back((uint8_t)(blockIndex >> 24));
+    payload.push_back((uint8_t)(blockIndex >> 16));
+    payload.push_back((uint8_t)(blockIndex >> 8));
+    payload.push_back((uint8_t)blockIndex);
 
     // length
     payload.push_back((uint8_t)(BLOCK_SIZE >> 24));
@@ -339,63 +395,76 @@ void PeerWireClient::processPieceMessage(PeerWireMessage msg) {
         (uint32_t)(msg.payload[1]) << 16 |
         (uint32_t)(msg.payload[2]) << 8 |
         (uint32_t)(msg.payload[3]);
-    uint32_t pieceBegin = (uint32_t)(msg.payload[4]) << 24 |
+    uint32_t blockIndex = (uint32_t)(msg.payload[4]) << 24 |
         (uint32_t)(msg.payload[5]) << 16 |
         (uint32_t)(msg.payload[6]) << 8 |
         (uint32_t)(msg.payload[7]);
-    if (pieceIndex != currentPiece || pieceBegin != currentBlock) {
-        /*std::cerr << "Incorrect piece index or block index received.\n";
-        std::cerr << "Expected piece " << currentPiece << " block " << currentBlock << std::endl;
-        std::cerr << "Received piece " << pieceIndex << " block " << pieceBegin << std::endl;*/
+
+    //std::cout << peerPrefix << "PIECE: " << pieceIndex << " BLOCK: " << blockIndex << std::endl;
+
+    if (pieceIndex != pieceData.pieceIndex || blockIndex % BLOCK_SIZE != 0) { 
+        std::cerr << peerPrefix << "Incorrect piece: " << pieceIndex << std::endl;
+        return; 
+    }
+    if (pieceData.blockInfo[blockIndex / BLOCK_SIZE]) { 
+        std::cerr << peerPrefix << "Already have block: " << pieceIndex << ": " << blockIndex << std::endl;
         return;
     }
  
-    std::copy(msg.payload.begin() + 8, msg.payload.end(), pieceInMemory.begin() + currentBlock);
-    currentBlock += BLOCK_SIZE;
+    std::copy(msg.payload.begin() + 8, msg.payload.end(), pieceData.data.begin() + blockIndex);
+    pieceData.blockInfo[blockIndex / BLOCK_SIZE] = true;
 
-    if (currentBlock >= pieceQueue.pieceSize) {
-        // verify SHA1 hash
-        CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-        CryptoPP::SHA1().CalculateDigest(digest, pieceInMemory.data(), pieceInMemory.size());
-        std::array<uint8_t, 20> metainfoHash;
-        std::copy_n(pieceQueue.pieces.begin() + (pieceIndex * 20), 20, metainfoHash.begin());
-        if (std::equal(metainfoHash.begin(), metainfoHash.end(), 
-            std::begin(digest), std::end(digest))) {
-            // Write the piece to file
-            // TODO: test this
-            size_t fileOffset = pieceIndex * pieceQueue.pieceSize;
-            outputFile.seekp(fileOffset);
-            const char *pieceData = (const char *)pieceInMemory.data();
-            outputFile.write(pieceData, pieceInMemory.size());
-            size_t numPiecesDownloaded = pieceQueue.numPieces - pieceQueue.undownloaded.size();
-            if (numPiecesDownloaded % 100 == 0) {
-                std::cout << numPiecesDownloaded << " pieces downloaded. "; 
-                std::cout << pieceQueue.undownloaded.size() << " remaining.\n";
-            }
-
-        } else {
-            std::cerr << "Piece " << pieceIndex << ": Incorrect hash.\n";
-            pieceQueue.undownloaded.push_back(currentPiece);
+    if (pieceData.finished()) {
+        std::array<uint8_t, 20> metainfoHash = fileData.pieceHashes[pieceIndex];
+        if (!pieceData.verifyHash(metainfoHash)) {
+            // TODO: clean up
+            std::cerr << "Unable to verify hash: piece " << pieceIndex << std::endl;
+            fileData.undownloaded.push_back(pieceIndex);
+            abort();
         }
 
-        if (pieceQueue.undownloaded.size() == 0) {
+
+        // write to file
+        size_t fileOffset = pieceIndex * fileData.pieceSize;
+        fileData.output.seekp(fileOffset);
+        const char *dataPtr = (const char *)pieceData.data.data();
+        fileData.output.write(dataPtr, pieceData.data.size());
+
+        fileData.pieceInfo[pieceIndex] = true;
+        //std::cout << peerPrefix << "Finished " << pieceIndex << std::endl;
+
+        size_t numDownloaded = 0;
+        for (size_t i = 0; i < fileData.numPieces; i++) {
+            if (fileData.pieceInfo[i]) { numDownloaded++; }
+        }
+        std::cout << numDownloaded << "/" << fileData.numPieces << std::endl;
+        
+        if (numDownloaded == fileData.numPieces) {
+            // TODO: shutdown
+            abort();
+        }
+
+        if (fileData.undownloaded.empty()) {
+            // TODO: handle this better
             return;
         }
-        
-        currentPiece = pieceQueue.undownloaded.front();
-        pieceQueue.undownloaded.pop_front();
+
+        uint32_t newPiece = fileData.undownloaded.front();
+        fileData.undownloaded.pop_front();
         // get a new piece index at random
         // attempt to guarantee that the peer has the piece
         for (size_t i = 0; i < 25; i++) {
-            if (!bitfield.hasPiece(currentPiece)) {
-                pieceQueue.undownloaded.push_back(currentPiece);
-                currentPiece = pieceQueue.pieces.front();
-                pieceQueue.undownloaded.pop_front();
+            if (!bitfield.hasPiece(newPiece)) {
+                fileData.undownloaded.push_back(newPiece);
+                newPiece = fileData.undownloaded.front();
+                fileData.undownloaded.pop_front();
             }
         }
-        currentBlock = 0;
+        
+        pieceData = PieceData(newPiece, fileData.pieceSize);
     }
 }
+
 
 // Check that the handshake is valid and close the connection if it's not. Remove the handshake
 // from the readBuffer
@@ -474,3 +543,5 @@ void BitfieldStorage::setPiece(uint32_t pieceIndex) {
     uint8_t bfMask = 0x01 << (7 - (pieceIndex % 8));
     data[pieceIndex/8] |= bfMask;
 }
+
+

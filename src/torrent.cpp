@@ -7,10 +7,8 @@
 #include "external/cryptopp/sha.h"
 #include "external/cryptopp/hex.h"
 
-Torrent::Torrent(Bencoding *minfo)
-{
-    metainfo = minfo;
-    
+Torrent::Torrent(Bencoding *minfo) : metainfo(minfo)
+{   
     // initialize a peer ID
     std::random_device dev;
     std::mt19937 rng(dev());
@@ -53,11 +51,10 @@ Torrent::Torrent(Bencoding *minfo)
                 }
             }
         }
-        // Add whatever other info is needed...
     }
 
     numPieces = length/pieceLength + (length % pieceLength != 0);
-    pieceQueue = PieceQueue(numPieces, pieceLength, pieces);
+    fileData = FileData(numPieces, pieceLength, pieces, fileName);
 
     tracker = Tracker(announceURL, infoHash, peerID, length);
     string trackerResponse = tracker.requestTrackerInfo();
@@ -113,26 +110,24 @@ void Torrent::startDownloading() {
     std::cout << "Leechers: " << numLeechers << std::endl;
     std::cout << "interval: " << interval << std::endl;
     std::cout << "Number of peers: " << peerList.size() << std::endl;
+    std::cout << "Piece size: " << fileData.pieceSize << std::endl;
+    std::cout << std::endl;
 
     if (peerList.size() == 0) {
         std::cout << "Error: no peers.\n";
         abort();
     }
     
-    std::cout << std::endl;
-
-    // TODO:
-    // 1. Create file (need filename/extension info)
-    // 2. Pass file pointer to the clients
     std::ofstream outputFile(fileName, std::ios::binary);
-
+    
     // TODO: don't use raw pointers?
     asio::io_context io;
     vector<PeerWireClient *> clients;
     for (size_t i = 0; i < peerList.size(); i++) {
-        clients.push_back(new PeerWireClient(io, peerList[i], i, handshake, pieceQueue, outputFile));
+        clients.push_back(new PeerWireClient(io, peerList[i], i, handshake, fileData));
     }
     io.run();
 
-    // TODO: call destructors?
+    // TODO: might be nice to add elapsed time or something
+    std::cout << "Download finished.\n";
 }

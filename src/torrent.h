@@ -24,7 +24,7 @@ public:
 
     // hashes of the pieces
     string pieces;
-    PieceQueue pieceQueue;
+    FileData fileData;
 
     Torrent(Bencoding *minfo);
     void startDownloading();
