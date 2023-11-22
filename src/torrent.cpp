@@ -54,7 +54,7 @@ Torrent::Torrent(Bencoding *minfo) : metainfo(minfo)
     }
 
     numPieces = length/pieceLength + (length % pieceLength != 0);
-    fileData = FileData(numPieces, pieceLength, pieces, fileName);
+    fileData = FileData(pieceLength, length, pieces, fileName);
 
     tracker = Tracker(announceURL, infoHash, peerID, length);
     string trackerResponse = tracker.requestTrackerInfo();
@@ -110,7 +110,9 @@ void Torrent::startDownloading() {
     std::cout << "Leechers: " << numLeechers << std::endl;
     std::cout << "interval: " << interval << std::endl;
     std::cout << "Number of peers: " << peerList.size() << std::endl;
+    std::cout << "Number of pieces: " << fileData.numPieces << std::endl;
     std::cout << "Piece size: " << fileData.pieceSize << std::endl;
+    std::cout << "Last piece size: " << fileData.lastPieceSize << std::endl;
     std::cout << std::endl;
 
     if (peerList.size() == 0) {
