@@ -67,6 +67,9 @@ FileData::FileData(size_t pSize, size_t fSize, std::string hashes, std::string f
     std::random_device dev;
     std::mt19937 rng(dev());
     std::shuffle(undownloaded.begin(), undownloaded.end(), rng);
+
+
+    
 }
 
 bool FileData::finished()
@@ -149,7 +152,11 @@ void PeerWireClient::handleConnect(const asio::error_code &error) {
 */
 void PeerWireClient::handleWrite(const asio::error_code &error, size_t /*bytesWritten*/) {
     if (error) {
-        std::cerr << peerPrefix << "Write err: " << error.message() << std::endl;
+        //std::cerr << peerPrefix << "Write err: " << error.message() << std::endl;
+        return;
+    }
+
+    if (!socket.is_open()) {
         return;
     }
 
@@ -164,10 +171,14 @@ void PeerWireClient::handleWrite(const asio::error_code &error, size_t /*bytesWr
 */
 void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead) {
     if (error) {
-        std::cerr << peerPrefix << "Read err: " << error.message() << std::endl;
+        //std::cerr << peerPrefix << "Read err: " << error.message() << std::endl;
         if (peerValidated && !fileData.pieceInfo[pieceData.pieceIndex]) {
             fileData.undownloaded.push_back(pieceData.pieceIndex);
         }
+        return;
+    }
+
+    if (!socket.is_open()) {
         return;
     }
 
@@ -191,7 +202,7 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
         size_t pSize = pIndex == (fileData.numPieces - 1) ? 
             fileData.lastPieceSize : fileData.pieceSize;
         pieceData = PieceData(pIndex, pSize);
-        timer.expires_from_now(std::chrono::seconds(2 * TIME_LIMIT));
+        timer.expires_from_now(std::chrono::seconds(TIME_LIMIT));
         auto callback = std::bind(&PeerWireClient::handleTimeout, this, std::placeholders::_1);
         timer.async_wait(callback);
     }
@@ -202,13 +213,13 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
         processMessage(msg);
     }
 
-    if (pieceData.finished()) {
+    if (pieceData.finished() && pieceData.inProgress) {
         processFinishedPiece();
     }
 
     if (fileData.finished()) {
-        // TODO: test
-        dropConnection();
+        ioContext.stop();
+        fileData.output.close();
         return;
     }
 
@@ -223,6 +234,9 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
     } else {
         std::vector<uint32_t> requests = pieceData.getRequests();
         for (size_t blockInd : requests) {
+            if (pieceData.timedOut) {
+                std::cout << "Requesting piece " << pieceData.pieceIndex << " block " << blockInd << std::endl;
+            }
             outboundMessageList.push_back(generateRequest(pieceData.pieceIndex, blockInd));
             //std::cout << peerPrefix << "Req piece " << pieceData.pieceIndex << " block: " << blockInd << std::endl;
         }
@@ -247,22 +261,13 @@ void PeerWireClient::handleRead(const asio::error_code &error, size_t bytesRead)
 
 void PeerWireClient::handleTimeout(const asio::error_code &error)
 {
-    if (error != asio::error::operation_aborted) {
-        if (!pieceData.inProgress) {
-            updatePiece();
-        }
+    if (error == asio::error::operation_aborted) {
+        return;
+    }
 
-        if (!pieceData.timedOut) {
-            std::cout << peerPrefix << "Requeued.\n";
-            pieceData.requeueBlocks();
-            return;
-        }
-
-        if (!fileData.pieceInfo[pieceData.pieceIndex]) {
-            fileData.undownloaded.push_back(pieceData.pieceIndex);
-        }
-        std::cout << peerPrefix << "Timed out.\n";
-        updatePiece();
+    if (!fileData.pieceInfo[pieceData.pieceIndex]) {
+        fileData.undownloaded.push_back(pieceData.pieceIndex);
+        dropConnection();
     }
 }
 
@@ -316,16 +321,11 @@ void PeerWireClient::processMessage(PeerWireMessage msg) {
 
 void PeerWireClient::updatePiece()
 {
-    pieceData.timedOut = false;
-    pieceData.inProgress = true;
-
     if (fileData.undownloaded.empty()) {
         pieceData.inProgress = false;
-        timer.expires_from_now(std::chrono::seconds(TIME_LIMIT));
-        auto callback = std::bind(&PeerWireClient::handleTimeout, this, std::placeholders::_1);
-        timer.async_wait(callback);
         return;
     }
+    pieceData.inProgress = true;
 
     uint32_t newPiece = fileData.undownloaded.front();
     fileData.undownloaded.pop_front();
@@ -363,6 +363,7 @@ void PeerWireClient::processFinishedPiece()
     fileData.output.seekp(fileOffset);
     const char *dataPtr = (const char *)pieceData.data.data();
     fileData.output.write(dataPtr, pieceData.data.size());
+    fileData.output.flush();
 
     // update fileData
     fileData.pieceInfo[pieceData.pieceIndex] = true;
@@ -372,9 +373,22 @@ void PeerWireClient::processFinishedPiece()
     for (size_t i = 0; i < fileData.numPieces; i++) {
         if (fileData.pieceInfo[i]) { numDownloaded++; }
     }
-    if (numDownloaded % 100 == 0 || (fileData.numPieces - numDownloaded) <= 10) {
-        std::cout << numDownloaded << "/" << fileData.numPieces << std::endl;
+
+    float progress = (float)numDownloaded / (float)fileData.numPieces;
+    int barWidth = 70;
+
+    std::cout << "[";
+    int pos = barWidth * progress;
+    for (int i = 0; i < barWidth; ++i) {
+      if (i < pos)
+        std::cout << "=";
+      else if (i == pos)
+        std::cout << ">";
+      else
+        std::cout << " ";
     }
+    std::cout << "] " << int(progress * 100.0) << " %\r";
+    std::cout.flush();
 
     // get a new piece and start a new timer
     updatePiece();
@@ -529,11 +543,6 @@ void PeerWireClient::processPieceMessage(PeerWireMessage msg) {
     if (pieceData.blockInfo[blockIndex / BLOCK_SIZE]) { 
         std::cerr << peerPrefix << "Already have block: " << pieceIndex << ": " << blockIndex << std::endl;
         return;
-    }
- 
-    if (msg.payload.size() != BLOCK_SIZE + 8) {
-        std::cout << "PIECE: " << pieceIndex << " BLOCK: " << blockIndex << std::endl;
-        std::cout << "msg payload size: " << msg.payload.size() << std::endl;
     }
 
     std::copy(msg.payload.begin() + 8, msg.payload.end(), pieceData.data.begin() + blockIndex);

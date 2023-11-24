@@ -106,13 +106,10 @@ Torrent::Torrent(Bencoding *minfo) : metainfo(minfo)
 // as many peers as possible up to a maximum of 30 connections
 // TODO: add server functionality
 void Torrent::startDownloading() {
+    std::cout << "File: " << fileName << std::endl;
     std::cout << "Seeders: " << numSeeders << std::endl;
     std::cout << "Leechers: " << numLeechers << std::endl;
-    std::cout << "interval: " << interval << std::endl;
     std::cout << "Number of peers: " << peerList.size() << std::endl;
-    std::cout << "Number of pieces: " << fileData.numPieces << std::endl;
-    std::cout << "Piece size: " << fileData.pieceSize << std::endl;
-    std::cout << "Last piece size: " << fileData.lastPieceSize << std::endl;
     std::cout << std::endl;
 
     if (peerList.size() == 0) {
@@ -122,13 +119,29 @@ void Torrent::startDownloading() {
     
     std::ofstream outputFile(fileName, std::ios::binary);
     
-    // TODO: don't use raw pointers?
+    std::cout << "Starting download.\n";
+
+    // TODO: don't use raw pointers
     asio::io_context io;
     vector<PeerWireClient *> clients;
     for (size_t i = 0; i < peerList.size(); i++) {
         clients.push_back(new PeerWireClient(io, peerList[i], i, handshake, fileData));
     }
     io.run();
+
+    int barWidth = 70;
+    std::cout << "[";
+    int pos = barWidth;
+    for (int i = 0; i < barWidth; ++i) {
+      if (i < pos)
+        std::cout << "=";
+      else if (i == pos)
+        std::cout << ">";
+      else
+        std::cout << " ";
+    }
+    std::cout << "] " << 100 << " %\r";
+    std::cout << std::endl;
 
     // TODO: might be nice to add elapsed time or something
     std::cout << "Download finished.\n";
